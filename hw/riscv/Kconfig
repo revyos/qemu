@@ -25,6 +25,9 @@ config OPENTITAN
 config SHAKTI
     bool
 
+config THEAD_PMU
+    bool
+
 config SHAKTI_C
     bool
     select UNIMP
@@ -91,6 +94,7 @@ config RISCV_SMARTL
     select CSKY_UART
     select CSKY_TIMER
     select CSKY_EXIT
+    select THEAD_PMU
 
 config RISCV_SMARTH
     bool

@@ -205,6 +205,9 @@ typedef struct mips_elf_abiflags_v0 {
 
 #define EM_AARCH64  183
 
+#define EM_CSKY         252      /* CSKY */
+#define EM_CSKY_OLD     39
+
 #define EF_AVR_MACH     0x7F       /* Mask for AVR e_flags to get core type */
 
 /* This is the info that is needed to parse the dynamic section of the file */

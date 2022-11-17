@@ -62,7 +62,8 @@
 #if (defined(TARGET_I386) && defined(TARGET_ABI32)) \
     || (defined(TARGET_ARM) && defined(TARGET_ABI32)) \
     || defined(TARGET_SPARC) \
-    || defined(TARGET_M68K) || defined(TARGET_SH4) || defined(TARGET_CRIS)
+    || defined(TARGET_M68K) || defined(TARGET_SH4) || defined(TARGET_CRIS) \
+    || defined(TARGET_CSKY)
     /* 16 bit uid wrappers emulation */
 #define USE_UID16
 #define target_id uint16_t
@@ -74,7 +75,7 @@
     || defined(TARGET_M68K) || defined(TARGET_CRIS) \
     || defined(TARGET_S390X) || defined(TARGET_OPENRISC) \
     || defined(TARGET_NIOS2) || defined(TARGET_RISCV) \
-    || defined(TARGET_XTENSA)
+    || defined(TARGET_XTENSA) || defined(TARGET_CSKY)
 
 #define TARGET_IOC_SIZEBITS	14
 #define TARGET_IOC_DIRBITS	2
@@ -2129,7 +2130,8 @@ struct target_stat64  {
     abi_ulong __unused5;
 };
 
-#elif defined(TARGET_OPENRISC) || defined(TARGET_NIOS2) || defined(TARGET_RISCV)
+#elif defined(TARGET_OPENRISC) || defined(TARGET_NIOS2) || \
+      defined(TARGET_RISCV) || defined(TARGET_CSKY)
 
 /* These are the asm-generic versions of the stat and stat64 structures */
 
@@ -2770,7 +2772,7 @@ struct target_drm_i915_getparam {
 #define FUTEX_CMD_MASK          ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME)
 
 #ifdef CONFIG_EPOLL
-#if defined(TARGET_X86_64)
+#if defined(TARGET_X86_64) || defined(TARGET_CSKY)
 #define TARGET_EPOLL_PACKED QEMU_PACKED
 #else
 #define TARGET_EPOLL_PACKED

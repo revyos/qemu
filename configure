@@ -485,6 +485,8 @@ for opt do
                 eval "cross_cc_${cc_arch}=\$optarg"
                 cross_cc_vars="$cross_cc_vars cross_cc_${cc_arch}"
   ;;
+  --enable-dynsoc) csky_dynsoc="yes"
+  ;;
   esac
 done
 # OS specific
@@ -886,6 +888,8 @@ for opt do
   --disable-debug-info)
   ;;
   --cross-cc-*)
+  ;;
+  --enable-dynsoc)
   ;;
   --enable-modules)
       modules="yes"
@@ -2203,9 +2207,9 @@ else
 fi
 
 # Our module code doesn't support Windows
-if test "$modules" = "yes" && test "$mingw32" = "yes" ; then
-  error_exit "Modules are not available for Windows"
-fi
+# if test "$modules" = "yes" && test "$mingw32" = "yes" ; then
+#   error_exit "Modules are not available for Windows"
+# fi
 
 # module_upgrades is only reasonable if modules are enabled
 if test "$modules" = "no" && test "$module_upgrades" = "yes" ; then
@@ -4587,7 +4591,12 @@ echo "TARGET_DIRS=$target_list" >> $config_host_mak
 if test "$modules" = "yes"; then
   # $shacmd can generate a hash started with digit, which the compiler doesn't
   # like as an symbol. So prefix it with an underscore
-  echo "CONFIG_STAMP=_$( (echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ )" >> $config_host_mak
+  if test "$csky_dynsoc" = "yes"; then
+    echo "CONFIG_STAMP=y" >> $config_host_mak
+    echo "CONFIG_DYNSOC=y" >> $config_host_mak
+  else
+    echo "CONFIG_STAMP=_$( (echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ )" >> $config_host_mak
+  fi
   echo "CONFIG_MODULES=y" >> $config_host_mak
 fi
 if test "$module_upgrades" = "yes"; then

@@ -37,7 +37,7 @@
 #include "hw/timer/csky_coret.h"
 #include "hw/timer/csky_timer.h"
 
-static uint64_t load_kernel(CPURISCVState *env, const char *kernel_filename)
+static uint64_t load_kernel(const char *kernel_filename)
 {
     uint64_t kernel_entry = 0, kernel_low = 0, kernel_high = 0;
 
@@ -47,8 +47,6 @@ static uint64_t load_kernel(CPURISCVState *env, const char *kernel_filename)
         error_report("qemu: could not load kernel '%s'", kernel_filename);
         exit(1);
     }
-    env->pc = (uint32_t)kernel_entry;
-    env->elf_start = kernel_entry;
     return kernel_entry;
 }
 
@@ -62,16 +60,24 @@ static void smarth_init(MachineState *machine)
     size_t plic_hart_config_len;
     int i;
     unsigned int smp_cpus = machine->smp.cpus;
+    uint64_t kernel_entry = 0;
 
     /* Initialize SOC */
-    object_initialize_child(OBJECT(machine), "soc", &s->soc,
+    object_initialize_child(OBJECT(machine), "soc", &s->soc[0],
                             TYPE_RISCV_HART_ARRAY);
-    object_property_set_str(OBJECT(&s->soc), "cpu-type", machine->cpu_type,
+    object_property_set_str(OBJECT(&s->soc[0]), "cpu-type", machine->cpu_type,
                             &error_abort);
-    object_property_set_int(OBJECT(&s->soc),  "num-harts", smp_cpus,
+    object_property_set_int(OBJECT(&s->soc[0]),  "num-harts", smp_cpus,
                             &error_abort);
-    object_property_set_bool(OBJECT(&s->soc),  "realized", true,
-                            &error_abort);
+    if (machine->kernel_filename) {
+        kernel_entry = load_kernel(machine->kernel_filename);
+        object_property_set_uint(OBJECT(&s->soc[0]),  "resetvec",
+                                 kernel_entry, &error_abort);
+
+    }
+    sysbus_realize(SYS_BUS_DEVICE(&s->soc[0]), &error_abort);
+    s->soc[0].harts[0].env.elf_start = kernel_entry;
+
     /* register system main memory (actual RAM) */
     memory_region_init_ram(main_mem, NULL, "smarth.sdram",
                            machine->ram_size, &error_fatal);
@@ -101,9 +107,9 @@ static void smarth_init(MachineState *machine)
         VIRT_PLIC_CONTEXT_STRIDE,
         0x4000000);
     sifive_clint_create(0x4004000000,
-        0x10000, 0, smp_cpus,
-        SIFIVE_SIP_BASE, SIFIVE_TIMECMP_BASE, SIFIVE_TIME_BASE,
-        SIFIVE_CLINT_TIMEBASE_FREQ, false);
+        0x10000, 0, smp_cpus, SIFIVE_SIP_BASE, 0xC000,
+        SIFIVE_TIMECMP_BASE, 0xD000, SIFIVE_TIME_BASE,
+        SIFIVE_CLINT_TIMEBASE_FREQ, true);
 
     for (i = 0; i < VIRT_PLIC_NUM_SOURCES; i++) {
         irqs[i] = qdev_get_gpio_in(DEVICE(s->plic[0]), i);
@@ -116,9 +122,6 @@ static void smarth_init(MachineState *machine)
 
     sysbus_create_simple("csky_exit", 0x10002000, NULL);
 
-    if (machine->kernel_filename) {
-        load_kernel(&s->soc[0].harts[0].env, machine->kernel_filename);
-    }
     g_free(plic_hart_config);
 }
 

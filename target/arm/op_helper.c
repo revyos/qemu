@@ -27,6 +27,48 @@
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
 
+extern long long total_jcount;
+void helper_tb_trace_a64(CPUARMState *env, uint64_t tb_pc)
+{
+    if (env->jcount_enable == 0) {
+        qemu_log_mask(CPU_TB_TRACE, "0x%" PRIx64 "\n", tb_pc);
+    } else if ((tb_pc > env->jcount_start) &&
+                (tb_pc < env->jcount_end)) {
+        qemu_log_mask(CPU_TB_TRACE, "0x%" PRIx64 "\n", tb_pc);
+    }
+}
+
+#ifdef CONFIG_USER_ONLY
+void helper_jcount_a64(CPUARMState *env, uint64_t tb_pc, uint64_t icount)
+{
+    if ((tb_pc >= env->jcount_start) && (tb_pc < env->jcount_end)) {
+        total_jcount += icount;
+    }
+}
+#else
+void helper_jcount_a64(CPUARMState *env, uint64_t tb_pc, uint64_t icount){}
+#endif
+void helper_tb_trace(CPUARMState *env, uint32_t tb_pc)
+{
+    if (env->jcount_enable == 0) {
+        qemu_log_mask(CPU_TB_TRACE, "0x%.8x\n", tb_pc);
+    } else if ((tb_pc > env->jcount_start) &&
+                (tb_pc < env->jcount_end)) {
+        qemu_log_mask(CPU_TB_TRACE, "0x%.8x\n", tb_pc);
+    }
+}
+
+#ifdef CONFIG_USER_ONLY
+void helper_jcount(CPUARMState *env, uint32_t tb_pc, uint32_t icount)
+{
+    if ((tb_pc >= env->jcount_start) && (tb_pc < env->jcount_end)) {
+        total_jcount += icount;
+    }
+}
+#else
+void helper_jcount(CPUARMState *env, uint32_t tb_pc, uint32_t icount){}
+#endif
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {

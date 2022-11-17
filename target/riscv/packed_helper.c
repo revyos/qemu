@@ -1932,7 +1932,7 @@ static inline void do_kmsxda(CPURISCVState *env, void *vd, void *va,
 
     if (a[H2(i)] == INT16_MIN && a[H2(i + 1)] == INT16_MIN &&
         b[H2(i)] == INT16_MIN && b[H2(i + 1)] == INT16_MIN) {
-        if (d[H4(i)] < 0) {
+        if (c[H4(i)] < 0) {
             env->vxsat = 0x1;
             d[H4(i)] = INT32_MIN;
         } else {
@@ -2227,14 +2227,14 @@ rvpr64_acc(CPURISCVState *env, target_ulong a,
            target_ulong b, uint64_t c,
            uint8_t step, uint8_t size, PackedFn4i *fn)
 {
-    int i, passes = riscv_cpu_is_32bit(env) ? 4 / size :
+    int i, passes = (cpu_get_xl(env) == MXL_RV32) ? 4 / size :
                                               sizeof(target_ulong) / size;
     uint64_t result = 0;
     uint64_t exp_a = a, exp_b = b;
 
     for (i = 0; i < passes; i += step) {
-        fn(env, &result, riscv_cpu_is_32bit(env) ? (void *)&a : (void *)&exp_a,
-           riscv_cpu_is_32bit(env) ? (void *)&b : (void *)&exp_b, &c, i);
+        fn(env, &result, (cpu_get_xl(env) == MXL_RV32) ? (void *)&a : (void *)&exp_a,
+           (cpu_get_xl(env) == MXL_RV32) ? (void *)&b : (void *)&exp_b, &c, i);
     }
     return result;
 }
@@ -2304,7 +2304,7 @@ static inline void do_kmar64(CPURISCVState *env, void *vd, void *va,
     int32_t *a = va, *b = vb;
     int64_t *d = vd, *c = vc;
     int64_t m0 =  (int64_t)a[H4(i)] * b[H4(i)];
-    if (!riscv_cpu_is_32bit(env)) {
+    if (!(cpu_get_xl(env) == MXL_RV32)) {
         int64_t m1 =  (int64_t)a[H4(i + 1)] * b[H4(i + 1)];
         if (a[H4(i)] == INT32_MIN && b[H4(i)] == INT32_MIN &&
             a[H4(i + 1)] == INT32_MIN && b[H4(i + 1)] == INT32_MIN) {
@@ -2331,7 +2331,7 @@ static inline void do_kmsr64(CPURISCVState *env, void *vd, void *va,
     int64_t *d = vd, *c = vc;
 
     int64_t m0 =  (int64_t)a[H4(i)] * b[H4(i)];
-    if (!riscv_cpu_is_32bit(env)) {
+    if (!(cpu_get_xl(env) == MXL_RV32)) {
         int64_t m1 =  (int64_t)a[H4(i + 1)] * b[H4(i + 1)];
         if (a[H4(i)] == INT32_MIN && b[H4(i)] == INT32_MIN &&
             a[H4(i + 1)] == INT32_MIN && b[H4(i + 1)] == INT32_MIN) {
@@ -2934,7 +2934,7 @@ static inline void do_sra_u(CPURISCVState *env, void *vd, void *va,
 {
     target_long *d = vd, *a = va;
     uint8_t *b = vb;
-    uint8_t shift = riscv_has_ext(env, RV32) ? (*b & 0x1f) : (*b & 0x3f);
+    uint8_t shift = cpu_get_xl(env) == MXL_RV32 ? (*b & 0x1f) : (*b & 0x3f);
 
     *d = vssra64(env, 0, *a, shift);
 }
@@ -2946,7 +2946,7 @@ static inline void do_bitrev(CPURISCVState *env, void *vd, void *va,
 {
     target_ulong *d = vd, *a = va;
     uint8_t *b = vb;
-    uint8_t shift = riscv_has_ext(env, RV32) ? (*b & 0x1f) : (*b & 0x3f);
+    uint8_t shift = cpu_get_xl(env) == MXL_RV32 ? (*b & 0x1f) : (*b & 0x3f);
 
     *d = revbit64(*a) >> (64 - shift - 1);
 }

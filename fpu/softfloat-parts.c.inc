@@ -1218,14 +1218,17 @@ static FloatPartsN *partsN(minmax)(FloatPartsN *a, FloatPartsN *b,
     int a_exp, b_exp, cmp;
 
     if (unlikely(ab_mask & float_cmask_anynan)) {
-        /*
-         * For minnum/maxnum, if one operand is a QNaN, and the other
-         * operand is numerical, then return numerical argument.
-         */
-        if ((flags & minmax_isnum)
-            && !(ab_mask & float_cmask_snan)
-            && (ab_mask & ~float_cmask_qnan)) {
-            return is_nan(a->cls) ? b : a;
+        if (flags & minmax_isnum) {
+            /*
+             * For minnum/maxnum, if one operand is a QNaN, and the other
+             * operand is numerical, then return numerical argument.
+             */
+            if ((!(ab_mask & float_cmask_snan)
+                 && (ab_mask & ~float_cmask_qnan))
+                || ((flags & minmax_noprop) &&
+                    (ab_mask & ~float_cmask_anynan))) {
+                return is_nan(a->cls) ? b : a;
+            }
         }
         return parts_pick_nan(a, b, s);
     }

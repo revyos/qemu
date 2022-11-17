@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="com.csky.cds.launch.CSKYApplicationType">
+<stringAttribute key=".gdb_continue" value=""/>
+<stringAttribute key=".gdb_hwreset" value=""/>
+<stringAttribute key=".gdb_preload" value=""/>
+<stringAttribute key=".gdb_stop" value=""/>
+<stringAttribute key=".gdb_swreset" value=""/>
+<stringAttribute key="BUseLocalTool" value="true"/>
+<stringAttribute key="ConnectMode" value="Normal"/>
+<booleanAttribute key="DebugInFlash" value="false"/>
+<stringAttribute key="DebugResetType" value="Hard Reset"/>
+<stringAttribute key="DriverFilePath" value=""/>
+<stringAttribute key="DriverTemplate" value=""/>
+<booleanAttribute key="Execute preload script" value="false"/>
+<booleanAttribute key="FirstReset" value="false"/>
+<stringAttribute key="FirstReset mode" value="Hard Reset"/>
+<booleanAttribute key="Lock Connect mode selection" value="false"/>
+<booleanAttribute key="Lock First Reset" value="false"/>
+<booleanAttribute key="Lock Second Reset" value="false"/>
+<booleanAttribute key="Lock Soft Reset Command" value="false"/>
+<booleanAttribute key="LockDebugConnection" value="false"/>
+<booleanAttribute key="LockDebugResetType" value="false"/>
+<booleanAttribute key="LockLaunchOption" value="false"/>
+<booleanAttribute key="LockLaunchSteps" value="false"/>
+<booleanAttribute key="LockScriptSelect" value="false"/>
+<stringAttribute key="RTOSType" value="None"/>
+<stringAttribute key="SReset Command" value="0"/>
+<booleanAttribute key="SecondReset" value="false"/>
+<stringAttribute key="SecondReset mode" value="Soft Reset"/>
+<stringAttribute key="bad_container_name" value="\pangu_cpu2_debug"/>
+<booleanAttribute key="chip_erase" value="false"/>
+<stringAttribute key="command_timeout" value="60"/>
+<booleanAttribute key="debug_in_flash_verify" value="true"/>
+<stringAttribute key="debug_target" value="jtag_server"/>
+<booleanAttribute key="do_not_erase" value="false"/>
+<booleanAttribute key="enable_debug_printf" value="false"/>
+<booleanAttribute key="enable_trace_qemu" value="false"/>
+<booleanAttribute key="erase_range" value="false"/>
+<stringAttribute key="erase_range_length" value=""/>
+<stringAttribute key="erase_range_start" value=""/>
+<booleanAttribute key="erase_sector" value="true"/>
+<stringAttribute key="ice_clk" value="2000"/>
+<stringAttribute key="localjtag_flags" value=""/>
+<stringAttribute key="mtcr_delay" value="10"/>
+<stringAttribute key="org.eclipse.cdt.debug.mi.core.DEBUG_NAME" value="csky-elfabiv2-gdb"/>
+<stringAttribute key="org.eclipse.cdt.debug.mi.core.GDB_INIT" value="gdb.init"/>
+<stringAttribute key="org.eclipse.cdt.debug.mi.core.HOST" value="172.16.67.151"/>
+<stringAttribute key="org.eclipse.cdt.debug.mi.core.PORT" value="1027"/>
+<stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_ID" value="com.csky.cds.debug.core.CDSBareGDBCDebugger"/>
+<stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_REGISTER_GROUPS" value=""/>
+<stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_START_MODE" value="run"/>
+<booleanAttribute key="org.eclipse.cdt.launch.DEBUGGER_STOP_AT_MAIN" value="true"/>
+<stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_STOP_AT_MAIN_SYMBOL" value="main"/>
+<booleanAttribute key="org.eclipse.cdt.launch.ENABLE_REGISTER_BOOKKEEPING" value="false"/>
+<booleanAttribute key="org.eclipse.cdt.launch.ENABLE_VARIABLE_BOOKKEEPING" value="false"/>
+<stringAttribute key="org.eclipse.cdt.launch.FORMAT" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;no&quot;?&gt;&lt;contentList/&gt;"/>
+<stringAttribute key="org.eclipse.cdt.launch.GLOBAL_VARIABLES" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;no&quot;?&gt;&#13;&#10;&lt;globalVariableList/&gt;&#13;&#10;"/>
+<stringAttribute key="org.eclipse.cdt.launch.MEMORY_BLOCKS" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;no&quot;?&gt;&#13;&#10;&lt;memoryBlockExpressionList/&gt;&#13;&#10;"/>
+<stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="Debug/pangu_cpu2.elf"/>
+<stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="pangu_cpu2"/>
+<stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value="cds.managedbuild.config.ckcoregcc.abiv2.exeWithoutOs.debug.935044178"/>
+<listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+<listEntry value="/pangu_cpu2"/>
+</listAttribute>
+<listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+<listEntry value="4"/>
+</listAttribute>
+<mapAttribute key="org.eclipse.debug.core.preferred_launchers">
+<mapEntry key="[debug]" value="com.csky.cds.launch.CSKYApplicationLaunch"/>
+</mapAttribute>
+<listAttribute key="org.eclipse.debug.ui.favoriteGroups">
+<listEntry value="org.eclipse.debug.ui.launchGroup.debug"/>
+</listAttribute>
+<booleanAttribute key="output log" value="false"/>
+<stringAttribute key="saved_expressions&lt;seperator&gt;Unknown" value="0x1802fcbc,0x8002da80"/>
+<stringAttribute key="sim_machine" value=""/>
+<stringAttribute key="sim_machine_path" value=""/>
+<stringAttribute key="sim_mode" value="Qemu System Mode"/>
+<stringAttribute key="sim_other_flags" value=""/>
+<booleanAttribute key="use nographic option" value="true"/>
+<booleanAttribute key="use_autorun" value="true"/>
+<booleanAttribute key="use_ddc" value="true"/>
+<booleanAttribute key="use_ice" value="true"/>
+<booleanAttribute key="use_loadimage" value="true"/>
+</launchConfiguration>

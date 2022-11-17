@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2016-2017 Sagar Karandikar, sagark@eecs.berkeley.edu
  * Copyright (c) 2017-2018 SiFive, Inc.
+ * Copyright (c) 2022      VRULL GmbH
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -28,6 +29,45 @@
 #include "hw/intc/riscv_clic.h"
 #endif
 
+void helper_tb_trace(CPURISCVState *env, target_ulong tb_pc)
+{
+    int trace_index = env->trace_index % TB_TRACE_NUM;
+    env->trace_info[trace_index].tb_pc = tb_pc;
+    env->trace_info[trace_index].notjmp = false;
+    env->trace_index++;
+    if (env->jcount_enable == 0) {
+        qemu_log_mask(CPU_TB_TRACE, "0x" TARGET_FMT_lx "\n", tb_pc);
+    } else if ((tb_pc > env->jcount_start) &&
+                (tb_pc < env->jcount_end)) {
+        qemu_log_mask(CPU_TB_TRACE, "0x" TARGET_FMT_lx "\n", tb_pc);
+    }
+}
+
+void helper_tag_pctrace(CPURISCVState *env, target_ulong tb_pc)
+{
+    if (env->trace_index < 1) {
+        return;
+    }
+    int trace_index = (env->trace_index -1) % TB_TRACE_NUM;
+    if (env->trace_info[trace_index].tb_pc == tb_pc) {
+        env->trace_info[trace_index].notjmp = true;
+    }
+}
+
+#ifdef CONFIG_USER_ONLY
+extern long long total_jcount;
+void helper_jcount(CPURISCVState *env, target_ulong tb_pc, uint32_t icount)
+{
+    if ((tb_pc >= env->jcount_start) && (tb_pc < env->jcount_end)) {
+        total_jcount += icount;
+    }
+}
+#else
+void helper_jcount(CPURISCVState *env, target_ulong tb_pc, uint32_t icount)
+{
+}
+#endif
+
 /* Exceptions processing helpers */
 void QEMU_NORETURN riscv_raise_exception(CPURISCVState *env,
                                           uint32_t exception, uintptr_t pc)
@@ -42,11 +82,10 @@ void helper_raise_exception(CPURISCVState *env, uint32_t exception)
     riscv_raise_exception(env, exception, 0);
 }
 
-target_ulong helper_csrrw(CPURISCVState *env, target_ulong src,
-        target_ulong csr)
+target_ulong helper_csrr(CPURISCVState *env, int csr)
 {
     target_ulong val = 0;
-    RISCVException ret = riscv_csrrw(env, csr, &val, src, -1);
+    RISCVException ret = riscv_csrrw(env, csr, &val, 0, 0);
 
     if (ret != RISCV_EXCP_NONE) {
         riscv_raise_exception(env, ret, GETPC());
@@ -54,11 +93,22 @@ target_ulong helper_csrrw(CPURISCVState *env, target_ulong src,
     return val;
 }
 
-target_ulong helper_csrrs(CPURISCVState *env, target_ulong src,
-        target_ulong csr, target_ulong rs1_pass)
+void helper_csrw(CPURISCVState *env, int csr, target_ulong src)
+{
+    target_ulong mask = cpu_get_xl(env) == MXL_RV32 ? UINT32_MAX :
+                                                      (target_ulong)-1;
+    RISCVException ret = riscv_csrrw(env, csr, NULL, src, mask);
+
+    if (ret != RISCV_EXCP_NONE) {
+        riscv_raise_exception(env, ret, GETPC());
+    }
+}
+
+target_ulong helper_csrrw(CPURISCVState *env, int csr,
+                          target_ulong src, target_ulong write_mask)
 {
     target_ulong val = 0;
-    RISCVException ret = riscv_csrrw(env, csr, &val, -1, rs1_pass ? src : 0);
+    RISCVException ret = riscv_csrrw(env, csr, &val, src, write_mask);
 
     if (ret != RISCV_EXCP_NONE) {
         riscv_raise_exception(env, ret, GETPC());
@@ -66,19 +116,124 @@ target_ulong helper_csrrs(CPURISCVState *env, target_ulong src,
     return val;
 }
 
-target_ulong helper_csrrc(CPURISCVState *env, target_ulong src,
-        target_ulong csr, target_ulong rs1_pass)
+/* helper_zicbo_envcfg
+ *
+ * Raise virtual exceptions and illegal instruction exceptions for
+ * Zicbo[mz] instructions based on the settings of [mhs]envcfg as
+ * specified in section 2.5.1 of the CMO specification.
+ */
+static void helper_zicbo_envcfg(CPURISCVState *env, target_ulong envbits,
+                                uintptr_t ra)
 {
-    target_ulong val = 0;
-    RISCVException ret = riscv_csrrw(env, csr, &val, 0, rs1_pass ? src : 0);
-
-    if (ret != RISCV_EXCP_NONE) {
-        riscv_raise_exception(env, ret, GETPC());
+#ifndef CONFIG_USER_ONLY
+    /* Check for virtual instruction exceptions first, as we don't see
+     * VU and VS reflected in env->priv (these are just the translated
+     * U and S stated with virtualisation enabled.
+     */
+    if (riscv_cpu_virt_enabled(env) &&
+        (((env->priv < PRV_H) && !get_field(env->henvcfg, envbits)) ||
+         ((env->priv < PRV_S) && !get_field(env->senvcfg, envbits)))) {
+        riscv_raise_exception(env, RISCV_EXCP_VIRT_INSTRUCTION_FAULT, ra);
     }
-    return val;
+
+    if (((env->priv < PRV_M) && !get_field(env->menvcfg, envbits)) ||
+        ((env->priv < PRV_S) && !get_field(env->senvcfg, envbits))) {
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
+    }
+#endif
+}
+
+/* helper_zicbom_access
+ *
+ * Check access permissions (LOAD, STORE or FETCH as specified in section
+ * 2.5.2 of the CMO specification) for Zicbom, raising either store
+ * page-fault (non-virtualised) or store guest-page fault (virtualised).
+ */
+static void helper_zicbom_access(CPURISCVState *env, target_ulong address,
+                                 uintptr_t ra)
+{
+    void* phost;
+    int ret = TLB_INVALID_MASK;
+    MMUAccessType access_type = MMU_DATA_LOAD;
+
+    while (ret == TLB_INVALID_MASK && access_type <= MMU_INST_FETCH) {
+        ret = probe_access_flags(env, address, access_type++,
+                                 cpu_mmu_index(env, false),
+                                 true, &phost, ra);
+    }
+
+    if (ret == TLB_INVALID_MASK) {
+        uint32_t exc = RISCV_EXCP_STORE_PAGE_FAULT;
+
+#ifndef CONFIG_USER_ONLY
+        /* User-mode emulation does not have virtualisation. */
+        if (riscv_cpu_virt_enabled(env)) {
+            exc = RISCV_EXCP_STORE_GUEST_AMO_ACCESS_FAULT;
+        }
+#endif
+        riscv_raise_exception(env, exc, ra);
+    }
+}
+
+void helper_cbo_clean_flush(CPURISCVState *env, target_ulong address)
+{
+    uintptr_t ra = GETPC();
+    helper_zicbo_envcfg(env, MENVCFG_CBCFE, ra);
+    helper_zicbom_access(env, address, ra);
+}
+
+void helper_cbo_inval(CPURISCVState *env, target_ulong address)
+{
+    uintptr_t ra = GETPC();
+    helper_zicbo_envcfg(env, MENVCFG_CBIE, ra);
+    helper_zicbom_access(env, address, ra);
+}
+
+void helper_cbo_zero(CPURISCVState *env, target_ulong address)
+{
+    uintptr_t ra = GETPC();
+    helper_zicbo_envcfg(env, MENVCFG_CBZE, ra);
+
+    /* Get the size of the cache block for zero instructions. */
+    RISCVCPU *cpu = env_archcpu(env);
+    uint16_t cbozlen = cpu->cfg.cbozlen;
+
+    /* Mask off low-bits to align-down to the cache-block. */
+    address &= ~(cbozlen - 1);
+
+    void* mem = probe_access(env, address, cbozlen, MMU_DATA_STORE,
+                             cpu_mmu_index(env, false), GETPC());
+
+    /* Zero the block */
+    memset(mem, 0, cbozlen);
 }
 
 #ifndef CONFIG_USER_ONLY
+
+void helper_switch_context_xl(CPURISCVState *env)
+{
+    RISCVMXL xl = cpu_get_xl(env);
+    if (xl < env->misa_mxl_max) {
+        switch (xl) {
+        case MXL_RV32:
+            for (int i = 1; i < 32; i++) {
+                env->gpr[i] = (int32_t)env->gpr[i];
+            }
+            env->pc = (int32_t)env->pc;
+            /*
+             * For the read-only bits of the previous-width CSR, the bits at the
+             * same positions in the temporary register are set to zeros.
+             */
+            if ((env->priv == PRV_U) && (env->misa_ext & RVV)) {
+                env->vl = 0;
+                env->vtype = 0;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
 
 target_ulong helper_sret(CPURISCVState *env, target_ulong cpu_pc_deb)
 {
@@ -148,7 +303,6 @@ target_ulong helper_sret(CPURISCVState *env, target_ulong cpu_pc_deb)
     }
 
     riscv_cpu_set_mode(env, prev_priv);
-
     return retpc;
 }
 
@@ -210,6 +364,7 @@ static target_ulong do_excp_return(CPURISCVState *env, target_ulong cpu_pc_deb,
         riscv_clic_get_next_interrupt(env->clic, cs->cpu_index);
         qemu_mutex_unlock_iothread();
     }
+    env->excp_vld = 0;
     return retpc;
 }
 
@@ -322,11 +477,12 @@ target_ulong helper_mulsh(target_ulong src1, target_ulong src2,
     return (target_long)d;
 }
 
-target_ulong helper_tstnbz(target_ulong src)
+target_ulong helper_tstnbz(target_ulong src, target_ulong ol)
 {
     int i;
     target_ulong res = 0;
-    for (i = 0; i < sizeof(target_ulong); i++) {
+    int cnt = ol == MXL_RV32 ? 4 : sizeof(target_ulong);
+    for (i = 0; i < cnt; i++) {
         if ((src & 0xff) == 0) {
             res |= ((target_ulong)0xff << (i * 8));
         }
@@ -335,10 +491,10 @@ target_ulong helper_tstnbz(target_ulong src)
     return res;
 }
 
-target_ulong helper_ff0(target_ulong src)
+target_ulong helper_ff0(target_ulong src, target_ulong ol)
 {
     int i = 0;
-    int bits = sizeof(target_ulong) * 8;
+    int bits = ol == MXL_RV32 ? 32 : sizeof(target_ulong) * 8;
 
     for (i = 0; i < bits; i++) {
         if ((src & ((target_ulong)1 << (bits - 1 - i))) == 0) {
@@ -348,10 +504,10 @@ target_ulong helper_ff0(target_ulong src)
     return i;
 }
 
-target_ulong helper_ff1(target_ulong src)
+target_ulong helper_ff1(target_ulong src, target_ulong ol)
 {
     int i = 0;
-    int bits = sizeof(target_ulong) * 8;
+    int bits =  ol == MXL_RV32 ? 32 : sizeof(target_ulong) * 8;
 
     for (i = 0; i < bits; i++) {
         if ((src & ((target_ulong)1 << (bits - 1 - i))) != 0) {
@@ -361,10 +517,10 @@ target_ulong helper_ff1(target_ulong src)
     return i;
 }
 
-target_ulong helper_srri(target_ulong src, target_ulong imm)
+target_ulong helper_srri(target_ulong src, target_ulong imm, target_ulong ol)
 {
     target_ulong i = 0;
-    int bits = sizeof(target_ulong) * 8;
+    int bits =  ol == MXL_RV32 ? 32 : sizeof(target_ulong) * 8;
 
     i = (src >> imm) | (src << (bits - imm));
     return i;
@@ -435,6 +591,7 @@ void helper_ipush(CPURISCVState *env)
         }
     }
     env->gpr[2] -= 72;
+    env->mstatus = set_field(env->mstatus, MSTATUS_MIE, 1);
 }
 
 target_ulong helper_ipop(CPURISCVState *env, target_ulong cpu_pc_deb)

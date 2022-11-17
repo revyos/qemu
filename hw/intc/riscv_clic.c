@@ -203,7 +203,7 @@ riscv_clic_check_visible(RISCVCLICState *clic, int mode, int hartid, int irq)
             return clic->clicintattr[irq_offset] & 0x80 ? (mode == PRV_M) :
                                                           (mode == PRV_S);
         case 2:
-            return mode == clic->clicintattr[irq_offset];
+            return mode == clic->clicintattr[irq_offset] >> 6;
         case 3:
             qemu_log_mask(LOG_GUEST_ERROR,
                 "clic: nmbits can only be 0 or 1 or 2 for M/S/U hart");
@@ -263,42 +263,93 @@ static int riscv_clic_active_compare(const void *a, const void *b)
     return riscv_clic_encode_priority(b) - riscv_clic_encode_priority(a);
 }
 
-static void
-riscv_clic_update_intie(RISCVCLICState *clic, int mode, int hartid,
-                        int irq, uint64_t new_intie)
+static void riscv_clic_enable_irq(RISCVCLICState *clic, int mode,
+                                  int hartid, int irq)
 {
     size_t hart_offset = hartid * clic->num_sources;
     size_t irq_offset = riscv_clic_get_irq_offset(clic, mode, hartid, irq);
     CLICActiveInterrupt *active_list = &clic->active_list[hart_offset];
     size_t *active_count = &clic->active_count[hartid];
 
-    uint8_t old_intie = clic->clicintie[irq_offset];
-    clic->clicintie[irq_offset] = !!new_intie;
-
-    /* Add to or remove from list of active interrupts */
-    if (new_intie && !old_intie) {
-        active_list[*active_count].intcfg = (mode << 8) |
-                                            clic->clicintctl[irq_offset];
-        active_list[*active_count].irq = irq;
-        (*active_count)++;
-    } else if (!new_intie && old_intie) {
-        CLICActiveInterrupt key = {
-            (mode << 8) | clic->clicintctl[irq_offset], irq
-        };
-        CLICActiveInterrupt *result = bsearch(&key,
-                                              active_list, *active_count,
-                                              sizeof(CLICActiveInterrupt),
-                                              riscv_clic_active_compare);
-        size_t elem = (result - active_list) / sizeof(CLICActiveInterrupt);
-        size_t sz = (--(*active_count) - elem) * sizeof(CLICActiveInterrupt);
-        assert(result);
-        memmove(&result[0], &result[1], sz);
-    }
+    active_list[*active_count].intcfg = (mode << 8) |
+                                        clic->clicintctl[irq_offset];
+    active_list[*active_count].irq = irq;
+    (*active_count)++;
 
     /* Sort list of active interrupts */
     qsort(active_list, *active_count,
           sizeof(CLICActiveInterrupt),
           riscv_clic_active_compare);
+}
+
+/* Notice this irq must be enabled before call this function */
+static void riscv_clic_disable_irq(RISCVCLICState *clic, int mode,
+                                   int hartid, int irq)
+{
+    size_t hart_offset = hartid * clic->num_sources;
+    size_t irq_offset = riscv_clic_get_irq_offset(clic, mode, hartid, irq);
+    CLICActiveInterrupt *active_list = &clic->active_list[hart_offset];
+    size_t *active_count = &clic->active_count[hartid];
+
+    CLICActiveInterrupt key = {
+        (mode << 8) | clic->clicintctl[irq_offset], irq
+    };
+    CLICActiveInterrupt *result = bsearch(&key,
+                                          active_list, *active_count,
+                                          sizeof(CLICActiveInterrupt),
+                                          riscv_clic_active_compare);
+    assert(result);
+    size_t elem = (result - active_list);
+    size_t sz = (--(*active_count) - elem) * sizeof(CLICActiveInterrupt);
+    memmove(&result[0], &result[1], sz);
+
+    /* Sort list of active interrupts */
+    qsort(active_list, *active_count,
+          sizeof(CLICActiveInterrupt),
+          riscv_clic_active_compare);
+}
+
+static void riscv_clic_update_intctl(RISCVCLICState *clic, int mode, int hartid,
+                                     int irq, uint64_t new_intctl)
+{
+    size_t hart_offset = hartid * clic->num_sources;
+    size_t irq_offset = riscv_clic_get_irq_offset(clic, mode, hartid, irq);
+    CLICActiveInterrupt *active_list = &clic->active_list[hart_offset];
+    size_t *active_count = &clic->active_count[hartid];
+
+    CLICActiveInterrupt key = {
+        (mode << 8) | clic->clicintctl[irq_offset], irq
+    };
+    CLICActiveInterrupt *result = bsearch(&key,
+                                          active_list, *active_count,
+                                          sizeof(CLICActiveInterrupt),
+                                          riscv_clic_active_compare);
+
+    if (result) {
+        result->intcfg = (mode << 8) | new_intctl;
+        qsort(active_list, *active_count,
+              sizeof(CLICActiveInterrupt),
+              riscv_clic_active_compare);
+    }
+    clic->clicintctl[irq_offset] = new_intctl;
+    riscv_clic_next_interrupt(clic, hartid);
+}
+
+static void
+riscv_clic_update_intie(RISCVCLICState *clic, int mode, int hartid,
+                        int irq, uint64_t new_intie)
+{
+    size_t irq_offset = riscv_clic_get_irq_offset(clic, mode, hartid, irq);
+
+    uint8_t old_intie = clic->clicintie[irq_offset];
+    clic->clicintie[irq_offset] = !!new_intie;
+
+    /* Add to or remove from list of active interrupts */
+    if (new_intie && !old_intie) {
+        riscv_clic_enable_irq(clic, mode, hartid, irq);
+    } else if (!new_intie && old_intie) {
+        riscv_clic_disable_irq(clic, mode, hartid, irq);
+    }
 
     riscv_clic_next_interrupt(clic, hartid);
 }
@@ -362,8 +413,7 @@ riscv_clic_hart_write(RISCVCLICState *clic, hwaddr addr,
         break;
     case 3: /* clicintctl[i] */
         if (value != clic->clicintctl[irq_offset]) {
-            clic->clicintctl[irq_offset] = value;
-            riscv_clic_next_interrupt(clic, hartid);
+            riscv_clic_update_intctl(clic, mode, hartid, irq, value);
         }
         break;
     }
@@ -491,7 +541,6 @@ riscv_clic_write(void *opaque, hwaddr addr, uint64_t value, unsigned size)
                             clic->nmbits = 0;
                         }
                     }
-                    clic->nvbits = extract32(value, 0, 1);
                     break;
                 }
             case 1: /* clicinfo, read-only register */
@@ -722,6 +771,7 @@ static void riscv_clic_realize(DeviceState *dev, Error **errp)
 static Property riscv_clic_properties[] = {
     DEFINE_PROP_BOOL("prv-s", RISCVCLICState, prv_s, false),
     DEFINE_PROP_BOOL("prv-u", RISCVCLICState, prv_u, false),
+    DEFINE_PROP_BOOL("vector", RISCVCLICState, nvbits, false),
     DEFINE_PROP_UINT32("num-harts", RISCVCLICState, num_harts, 0),
     DEFINE_PROP_UINT32("num-sources", RISCVCLICState, num_sources, 0),
     DEFINE_PROP_UINT32("clicintctlbits", RISCVCLICState, clicintctlbits, 0),
@@ -734,8 +784,11 @@ static void riscv_clic_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
     dc->realize = riscv_clic_realize;
     device_class_set_props(dc, riscv_clic_properties);
+    dc->desc = "cskysim type: INTC";
+    dc->user_creatable = true;
 }
 
 static const TypeInfo riscv_clic_info = {
@@ -758,6 +811,7 @@ type_init(riscv_clic_register_types)
  * @addr: base address of M-Mode CLIC memory-mapped registers
  * @prv_s: have smode region
  * @prv_u: have umode region
+ * @vector: the selective interrupt hardware vectoring is implemented or not
  * @num_harts: number of CPU harts
  * @num_sources: number of interrupts supporting by each aperture
  * @clicintctlbits: bits are actually implemented in the clicintctl registers
@@ -766,7 +820,8 @@ type_init(riscv_clic_register_types)
  * Returns: the device object
  */
 DeviceState *riscv_clic_create(hwaddr addr, bool prv_s, bool prv_u,
-                               uint32_t num_harts, uint32_t num_sources,
+                               bool vector, uint32_t num_harts,
+                               uint32_t num_sources,
                                uint8_t clicintctlbits,
                                const char *version)
 {
@@ -779,6 +834,7 @@ DeviceState *riscv_clic_create(hwaddr addr, bool prv_s, bool prv_u,
 
     qdev_prop_set_bit(dev, "prv-s", prv_s);
     qdev_prop_set_bit(dev, "prv-u", prv_u);
+    qdev_prop_set_bit(dev, "vector", vector);
     qdev_prop_set_uint32(dev, "num-harts", num_harts);
     qdev_prop_set_uint32(dev, "num-sources", num_sources);
     qdev_prop_set_uint32(dev, "clicintctlbits", clicintctlbits);

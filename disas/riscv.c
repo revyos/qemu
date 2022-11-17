@@ -485,82 +485,125 @@ typedef enum {
     rv_op_fsflags = 316,
     rv_op_fsrmi = 317,
     rv_op_fsflagsi = 318,
-    rv_op_xthead_srriw = 319,
-    rv_op_xthead_mula = 320,
-    rv_op_xthead_muls = 321,
-    rv_op_xthead_mulaw = 322,
-    rv_op_xthead_mulsw = 323,
-    rv_op_xthead_mulah = 324,
-    rv_op_xthead_mulsh = 325,
-    rv_op_xthead_mveqz = 326,
-    rv_op_xthead_mvnez = 327,
-    rv_op_xthead_tstnbz = 328,
-    rv_op_xthead_rev = 329,
-    rv_op_xthead_ff0 = 330,
-    rv_op_xthead_ff1 = 331,
-    rv_op_xthead_tst = 332,
-    rv_op_xthead_revw = 333,
-    rv_op_xthead_addsl = 334,
-    rv_op_xthead_srri = 335,
-    rv_op_xthead_ext = 336,
-    rv_op_xthead_extu = 337,
-    rv_op_xthead_lrb = 338,
-    rv_op_xthead_lbib = 339,
-    rv_op_xthead_lurb = 340,
-    rv_op_xthead_lbia = 341,
-    rv_op_xthead_lrh = 342,
-    rv_op_xthead_lhib = 343,
-    rv_op_xthead_lurh = 344,
-    rv_op_xthead_lhia = 345,
-    rv_op_xthead_lrw = 346,
-    rv_op_xthead_lwib = 347,
-    rv_op_xthead_lurw = 348,
-    rv_op_xthead_lwia = 349,
-    rv_op_xthead_lrd = 350,
-    rv_op_xthead_ldib = 351,
-    rv_op_xthead_lurd = 352,
-    rv_op_xthead_ldd = 353,
-    rv_op_xthead_srb = 354,
-    rv_op_xthead_sbib = 355,
-    rv_op_xthead_surb = 356,
-    rv_op_xthead_sbia = 357,
-    rv_op_xthead_srh = 358,
-    rv_op_xthead_shib = 359,
-    rv_op_xthead_surh = 360,
-    rv_op_xthead_shia = 361,
-    rv_op_xthead_srw = 362,
-    rv_op_xthead_swib = 363,
-    rv_op_xthead_surw = 364,
-    rv_op_xthead_swia = 365,
-    rv_op_xthead_srd = 366,
-    rv_op_xthead_sdib = 367,
-    rv_op_xthead_surd = 368,
-    rv_op_xthead_sdia = 369,
-    rv_op_xthead_swd = 370,
-    rv_op_xthead_sdd = 371,
-    rv_op_xthead_flrw = 372,
-    rv_op_xthead_flurw = 373,
-    rv_op_xthead_flrd = 374,
-    rv_op_xthead_flurd = 375,
-    rv_op_xthead_fsrw = 376,
-    rv_op_xthead_fsurw = 377,
-    rv_op_xthead_fsrd = 378,
-    rv_op_xthead_fsurd = 379,
-    rv_op_xthead_lwd = 380,
-    rv_op_xthead_lwud = 381,
-    rv_op_xthead_lrbu = 382,
-    rv_op_xthead_lrhu = 383,
-    rv_op_xthead_lrwu = 384,
-    rv_op_xthead_lbuib = 385,
-    rv_op_xthead_lhuib = 386,
-    rv_op_xthead_lwuib = 387,
-    rv_op_xthead_lbuia = 388,
-    rv_op_xthead_lhuia = 389,
-    rv_op_xthead_lwuia = 390,
-    rv_op_xthead_ldia = 391,
-    rv_op_xthead_lurbu = 392,
-    rv_op_xthead_lurhu = 393,
-    rv_op_xthead_lurwu = 394,
+    rv_op_bseti = 319,
+    rv_op_bclri = 320,
+    rv_op_binvi = 321,
+    rv_op_bexti = 322,
+    rv_op_rori = 323,
+    rv_op_clz = 324,
+    rv_op_ctz = 325,
+    rv_op_cpop = 326,
+    rv_op_sext_h = 327,
+    rv_op_sext_b = 328,
+    rv_op_xnor = 329,
+    rv_op_orn = 330,
+    rv_op_andn = 331,
+    rv_op_rol = 332,
+    rv_op_ror = 333,
+    rv_op_sh1add = 334,
+    rv_op_sh2add = 335,
+    rv_op_sh3add = 336,
+    rv_op_sh1add_uw = 337,
+    rv_op_sh2add_uw = 338,
+    rv_op_sh3add_uw = 339,
+    rv_op_clmul = 340,
+    rv_op_clmulr = 341,
+    rv_op_clmulh = 342,
+    rv_op_min = 343,
+    rv_op_minu = 344,
+    rv_op_max = 345,
+    rv_op_maxu = 346,
+    rv_op_clzw = 347,
+    rv_op_ctzw = 348,
+    rv_op_cpopw = 349,
+    rv_op_slli_uw = 350,
+    rv_op_add_uw = 351,
+    rv_op_rolw = 352,
+    rv_op_rorw = 353,
+    rv_op_rev8 = 354,
+    rv_op_zext_h = 355,
+    rv_op_roriw = 356,
+    rv_op_orc_b = 357,
+    rv_op_bset = 358,
+    rv_op_bclr = 359,
+    rv_op_binv = 360,
+    rv_op_bext = 361,
+    rv_op_xthead_srriw = 362,
+    rv_op_xthead_mula = 363,
+    rv_op_xthead_muls = 364,
+    rv_op_xthead_mulaw = 365,
+    rv_op_xthead_mulsw = 366,
+    rv_op_xthead_mulah = 367,
+    rv_op_xthead_mulsh = 368,
+    rv_op_xthead_mveqz = 369,
+    rv_op_xthead_mvnez = 370,
+    rv_op_xthead_tstnbz = 371,
+    rv_op_xthead_rev = 372,
+    rv_op_xthead_ff0 = 373,
+    rv_op_xthead_ff1 = 374,
+    rv_op_xthead_tst = 375,
+    rv_op_xthead_revw = 376,
+    rv_op_xthead_addsl = 377,
+    rv_op_xthead_srri = 378,
+    rv_op_xthead_ext = 379,
+    rv_op_xthead_extu = 380,
+    rv_op_xthead_lrb = 381,
+    rv_op_xthead_lbib = 382,
+    rv_op_xthead_lurb = 383,
+    rv_op_xthead_lbia = 384,
+    rv_op_xthead_lrh = 385,
+    rv_op_xthead_lhib = 386,
+    rv_op_xthead_lurh = 387,
+    rv_op_xthead_lhia = 388,
+    rv_op_xthead_lrw = 389,
+    rv_op_xthead_lwib = 390,
+    rv_op_xthead_lurw = 391,
+    rv_op_xthead_lwia = 392,
+    rv_op_xthead_lrd = 393,
+    rv_op_xthead_ldib = 394,
+    rv_op_xthead_lurd = 395,
+    rv_op_xthead_ldd = 396,
+    rv_op_xthead_srb = 397,
+    rv_op_xthead_sbib = 398,
+    rv_op_xthead_surb = 399,
+    rv_op_xthead_sbia = 400,
+    rv_op_xthead_srh = 401,
+    rv_op_xthead_shib = 402,
+    rv_op_xthead_surh = 403,
+    rv_op_xthead_shia = 404,
+    rv_op_xthead_srw = 405,
+    rv_op_xthead_swib = 406,
+    rv_op_xthead_surw = 407,
+    rv_op_xthead_swia = 408,
+    rv_op_xthead_srd = 409,
+    rv_op_xthead_sdib = 410,
+    rv_op_xthead_surd = 411,
+    rv_op_xthead_sdia = 412,
+    rv_op_xthead_swd = 413,
+    rv_op_xthead_sdd = 414,
+    rv_op_xthead_flrw = 415,
+    rv_op_xthead_flurw = 416,
+    rv_op_xthead_flrd = 417,
+    rv_op_xthead_flurd = 418,
+    rv_op_xthead_fsrw = 419,
+    rv_op_xthead_fsurw = 420,
+    rv_op_xthead_fsrd = 421,
+    rv_op_xthead_fsurd = 422,
+    rv_op_xthead_lwd = 423,
+    rv_op_xthead_lwud = 424,
+    rv_op_xthead_lrbu = 425,
+    rv_op_xthead_lrhu = 426,
+    rv_op_xthead_lrwu = 427,
+    rv_op_xthead_lbuib = 428,
+    rv_op_xthead_lhuib = 429,
+    rv_op_xthead_lwuib = 430,
+    rv_op_xthead_lbuia = 431,
+    rv_op_xthead_lhuia = 432,
+    rv_op_xthead_lwuia = 433,
+    rv_op_xthead_ldia = 434,
+    rv_op_xthead_lurbu = 435,
+    rv_op_xthead_lurhu = 436,
+    rv_op_xthead_lurwu = 437,
 } rv_op;
 
 /* structures */
@@ -1206,6 +1249,49 @@ const rv_opcode_data opcode_data[] = {
     { "fsflags", rv_codec_i_csr, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
     { "fsrmi", rv_codec_i_csr, rv_fmt_rd_zimm, NULL, 0, 0, 0 },
     { "fsflagsi", rv_codec_i_csr, rv_fmt_rd_zimm, NULL, 0, 0, 0 },
+    { "bseti", rv_codec_i_sh7, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "bclri", rv_codec_i_sh7, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "binvi", rv_codec_i_sh7, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "bexti", rv_codec_i_sh7, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "rori", rv_codec_i_sh7, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "clz", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "ctz", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "cpop", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "sext.h", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "sext.b", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "xnor", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "orn", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "andn", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "rol", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "ror", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh1add", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh2add", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh3add", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh1add.uw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh2add.uw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "sh3add.uw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "clmul", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "clmulr", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "clmulh", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "min", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "minu", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "max", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "maxu", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "clzw", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "clzw", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "cpopw", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "slli.uw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "add.uw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "rolw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "rorw", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "rev8", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "zext.h", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "roriw", rv_codec_i_sh5, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0 },
+    { "orc.b", rv_codec_r, rv_fmt_rd_rs1, NULL, 0, 0, 0 },
+    { "bset", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "bclr", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "binv", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
+    { "bext", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
     { "srriw", rv_codec_r2_imm5, rv_fmt_rd_rs1_imm, NULL, 0, 0, 0},
     { "mula", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
     { "muls", rv_codec_r, rv_fmt_rd_rs1_rs2, NULL, 0, 0, 0 },
@@ -1798,7 +1884,20 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
             case 0: op = rv_op_addi; break;
             case 1:
                 switch (((inst >> 27) & 0b11111)) {
-                case 0: op = rv_op_slli; break;
+                case 0b00000: op = rv_op_slli; break;
+                case 0b00101: op = rv_op_bseti; break;
+                case 0b01001: op = rv_op_bclri; break;
+                case 0b01101: op = rv_op_binvi; break;
+                case 0b01100:
+                    switch (((inst >> 20) & 0b1111111)) {
+                    case 0b0000000: op = rv_op_clz; break;
+                    case 0b0000001: op = rv_op_ctz; break;
+                    case 0b0000010: op = rv_op_cpop; break;
+                      /* 0b0000011 */
+                    case 0b0000100: op = rv_op_sext_b; break;
+                    case 0b0000101: op = rv_op_sext_h; break;
+                    }
+                    break;
                 }
                 break;
             case 2: op = rv_op_slti; break;
@@ -1806,8 +1905,16 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
             case 4: op = rv_op_xori; break;
             case 5:
                 switch (((inst >> 27) & 0b11111)) {
-                case 0: op = rv_op_srli; break;
-                case 8: op = rv_op_srai; break;
+                case 0b00000: op = rv_op_srli; break;
+                case 0b00101: op = rv_op_orc_b; break;
+                case 0b01000: op = rv_op_srai; break;
+                case 0b01001: op = rv_op_bexti; break;
+                case 0b01100: op = rv_op_rori; break;
+                case 0b01101:
+                    switch ((inst >> 20) & 0b1111111) {
+                    case 0b0111000: op = rv_op_rev8; break;
+                    }
+                    break;
                 }
                 break;
             case 6: op = rv_op_ori; break;
@@ -1821,12 +1928,21 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
             case 1:
                 switch (((inst >> 25) & 0b1111111)) {
                 case 0: op = rv_op_slliw; break;
+                case 4: op = rv_op_slli_uw; break;
+                case 48:
+                    switch ((inst >> 20) & 0b11111) {
+                    case 0b00000: op = rv_op_clzw; break;
+                    case 0b00001: op = rv_op_ctzw; break;
+                    case 0b00010: op = rv_op_cpopw; break;
+                    }
+                    break;
                 }
                 break;
             case 5:
                 switch (((inst >> 25) & 0b1111111)) {
                 case 0: op = rv_op_srliw; break;
                 case 32: op = rv_op_sraiw; break;
+                case 48: op = rv_op_roriw; break;
                 }
                 break;
             }
@@ -1914,8 +2030,32 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
             case 13: op = rv_op_divu; break;
             case 14: op = rv_op_rem; break;
             case 15: op = rv_op_remu; break;
+            case 36:
+                switch ((inst >> 20) & 0b11111) {
+                case 0: op = rv_op_zext_h; break;
+                }
+                break;
+            case 41: op = rv_op_clmul; break;
+            case 42: op = rv_op_clmulr; break;
+            case 43: op = rv_op_clmulh; break;
+            case 44: op = rv_op_min; break;
+            case 45: op = rv_op_minu; break;
+            case 46: op = rv_op_max; break;
+            case 47: op = rv_op_maxu; break;
+            case 130: op = rv_op_sh1add; break;
+            case 132: op = rv_op_sh2add; break;
+            case 134: op = rv_op_sh3add; break;
+            case 161: op = rv_op_bset; break;
             case 256: op = rv_op_sub; break;
+            case 260: op = rv_op_xnor; break;
             case 261: op = rv_op_sra; break;
+            case 262: op = rv_op_orn; break;
+            case 263: op = rv_op_andn; break;
+            case 289: op = rv_op_bclr; break;
+            case 293: op = rv_op_bext; break;
+            case 385: op = rv_op_rol; break;
+            case 386: op = rv_op_ror; break;
+            case 417: op = rv_op_binv; break;
             }
             break;
         case 13: op = rv_op_lui; break;
@@ -1929,8 +2069,19 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
             case 13: op = rv_op_divuw; break;
             case 14: op = rv_op_remw; break;
             case 15: op = rv_op_remuw; break;
+            case 32: op = rv_op_add_uw; break;
+            case 36:
+                switch ((inst >> 20) & 0b11111) {
+                case 0: op = rv_op_zext_h; break;
+                }
+                break;
+            case 130: op = rv_op_sh1add_uw; break;
+            case 132: op = rv_op_sh2add_uw; break;
+            case 134: op = rv_op_sh3add_uw; break;
             case 256: op = rv_op_subw; break;
             case 261: op = rv_op_sraw; break;
+            case 385: op = rv_op_rolw; break;
+            case 389: op = rv_op_rorw; break;
             }
             break;
         case 16:

@@ -33,6 +33,10 @@
 #define FXCR_RD_SHIFT       24
 #define FXCR_RD             (0x7 << FXCR_RD_SHIFT)
 
+/* BF16 in fxcr */
+#define FXCR_BF16_SHIFT     31
+#define FXCR_BF16           (0x1 << FXCR_BF16_SHIFT)
+
 /* Vector Fixed-Point round model */
 #define FSR_VXRM_SHIFT      9
 #define FSR_VXRM            (0x3 << FSR_VXRM_SHIFT)
@@ -64,8 +68,16 @@
 #define CSR_VSTART          0x008
 #define CSR_VXSAT           0x009
 #define CSR_VXRM            0x00a
+#define CSR_VCSR            0x00f
 #define CSR_VL              0xc20
 #define CSR_VTYPE           0xc21
+#define CSR_VLENB           0xc22
+
+/* VCSR fields */
+#define VCSR_VXSAT_SHIFT    0
+#define VCSR_VXSAT          (0x1 << VCSR_VXSAT_SHIFT)
+#define VCSR_VXRM_SHIFT     1
+#define VCSR_VXRM           (0x3 << VCSR_VXRM_SHIFT)
 
 /* User Timers and Counters */
 #define CSR_CYCLE           0xc00
@@ -144,6 +156,7 @@
 #define CSR_MARCHID         0xf12
 #define CSR_MIMPID          0xf13
 #define CSR_MHARTID         0xf14
+#define CSR_MCONFIGPTR      0xf15
 
 /* Machine Trap Setup */
 #define CSR_MSTATUS         0x300
@@ -177,6 +190,9 @@
 #define CSR_SCOUNTEREN      0x106
 #define CSR_STVT            0x107 /* clic-spec-draft */
 
+/* Supervisor Configuration CSRs */
+#define CSR_SENVCFG         0x10A
+
 /* Supervisor Trap Handling */
 #define CSR_SSCRATCH        0x140
 #define CSR_SEPC            0x141
@@ -186,6 +202,10 @@
 #define CSR_SNXTI           0x145 /* clic-spec-draft */
 #define CSR_SINTSTATUS      0x146 /* clic-spec-draft */
 #define CSR_SINTTHRESH      0x147 /* clic-spec-draft */
+
+ /* Sstc supervisor CSRs */
+ #define CSR_STIMECMP        0x14D
+ #define CSR_STIMECMPH       0x15D
 
 /* Supervisor Protection and Translation */
 #define CSR_SPTBR           0x180
@@ -207,6 +227,10 @@
 #define CSR_HTIMEDELTA      0x605
 #define CSR_HTIMEDELTAH     0x615
 
+/* Hypervisor Configuration CSRs */
+#define CSR_HENVCFG         0x60A
+#define CSR_HENVCFGH        0x61A
+
 /* Virtual CSRs */
 #define CSR_VSSTATUS        0x200
 #define CSR_VSIE            0x204
@@ -217,6 +241,10 @@
 #define CSR_VSTVAL          0x243
 #define CSR_VSIP            0x244
 #define CSR_VSATP           0x280
+
+/* Machine Configuration CSRs */
+#define CSR_MENVCFG         0x30A
+#define CSR_MENVCFGH        0x31A
 
 #define CSR_MTINST          0x34a
 #define CSR_MTVAL2          0x34b
@@ -285,7 +313,15 @@
 #define CSR_MNMICAUSE       0x7e2
 #define CSR_MNMIPC          0x7e3
 
+#define CSR_MSMPR           0x7f3
+#define CSR_MDTCMCR         0x7f8
+#define CSR_MITCMCR         0x7f9
+#define CSR_MIESR           0x7fa
+#define CSR_MSBEPA          0x7fb
+#define CSR_MSBEPA2         0x7fc
+
 #define CSR_CPUID           0xfc0
+#define CSR_MAPBADDR        0xfc1
 
 #define CSR_SXSTATUS        0x5c0
 #define CSR_SHCR            0x5c1
@@ -293,6 +329,9 @@
 #define CSR_SCER            0x5c3
 #define CSR_SCOUNTERINTEN   0x5c4
 #define CSR_SCOUNTEROF      0x5c5
+#define CSR_SIESR           0x5ce
+#define CSR_SSBEPA          0x5d1
+#define CSR_SSBEPA2         0x5d2
 #define CSR_CYCLE_C910      0x5e0
 #define CSR_SHPMCOUNTER1    0x5e1
 #define CSR_SHPMCOUNTER2    0x5e2
@@ -335,6 +374,20 @@
 
 #define MEXSTATUS_EXPT      0x20
 #define MEXSTATUS_SPSWAP    0x20000
+
+#define MDTCMCR_EN          0x1
+#define MDTCMCR_ECC_EN      0x2
+#define MDTCMCR_INTERLEAVE  0x4
+#define MDTCMCR_SIZE        0xf0
+#define MDTCMCR_BASE_32     0xfffff000
+#define MDTCMCR_BASE_64     0xfffffffffffff000
+
+#define MITCMCR_EN          0x1
+#define MITCMCR_ECC_EN      0x2
+#define MITCMCR_INTERLEAVE  0x4
+#define MITCMCR_SIZE        0xf0
+#define MITCMCR_BASE_32     0xfffff000
+#define MITCMCR_BASE_64     0xfffffffffffff000
 
 /* Performance Counters */
 #define CSR_MHPMCOUNTER3    0xb03
@@ -434,6 +487,7 @@
 #define MSTATUS_UBE         0x00000040
 #define MSTATUS_MPIE        0x00000080
 #define MSTATUS_SPP         0x00000100
+#define MSTATUS_VS          0x00000600
 #define MSTATUS_MPP         0x00001800
 #define MSTATUS_FS          0x00006000
 #define MSTATUS_XS          0x00018000
@@ -455,9 +509,11 @@
 #define MISA32_MXL          0xC0000000
 #define MISA64_MXL          0xC000000000000000ULL
 
-#define MXL_RV32            1
-#define MXL_RV64            2
-#define MXL_RV128           3
+typedef enum {
+    MXL_RV32  = 1,
+    MXL_RV64  = 2,
+    MXL_RV128 = 3,
+} RISCVMXL;
 
 /* sstatus CSR bits */
 #define SSTATUS_UIE         0x00000001
@@ -465,10 +521,13 @@
 #define SSTATUS_UPIE        0x00000010
 #define SSTATUS_SPIE        0x00000020
 #define SSTATUS_SPP         0x00000100
+#define SSTATUS_VS          0x00000600
 #define SSTATUS_FS          0x00006000
 #define SSTATUS_XS          0x00018000
 #define SSTATUS_SUM         0x00040000 /* since: priv-1.10 */
 #define SSTATUS_MXR         0x00080000
+
+#define SSTATUS64_UXL       0x0000000300000000ULL
 
 #define SSTATUS32_SD        0x80000000
 #define SSTATUS64_SD        0x8000000000000000ULL
@@ -492,6 +551,8 @@
 #define HCOUNTEREN_TM        (1 << 1)
 #define HCOUNTEREN_IR        (1 << 2)
 #define HCOUNTEREN_HPM3      (1 << 3)
+
+#define COUNTEREN_TM         (1 << 1)
 
 /* Privilege modes */
 #define PRV_U 0
@@ -544,9 +605,15 @@
 #define PTE_A               0x040 /* Accessed */
 #define PTE_D               0x080 /* Dirty */
 #define PTE_SOFT            0x300 /* Reserved for Software */
+#define PTE_PBMT            0x6000000000000000ULL /* Page-based memory types */
+#define PTE_N               0x8000000000000000ULL /* NAPOT translation */
+#define PTE_ATTR            (PTE_N | PTE_PBMT) /* All attributes bits */
 
 /* Page table PPN shift amount */
 #define PTE_PPN_SHIFT       10
+
+/* Page table PPN mask */
+#define PTE_PPN_MASK        0x3FFFFFFFFFFC00ULL
 
 /* Leaf page shift amount */
 #define PGSHIFT             12
@@ -646,4 +713,33 @@ typedef enum RISCVException {
 #define MIE_UTIE                           (1 << IRQ_U_TIMER)
 #define MIE_SSIE                           (1 << IRQ_S_SOFT)
 #define MIE_USIE                           (1 << IRQ_U_SOFT)
+
+/* Execution enviornment configuration bits */
+#define MENVCFG_FIOM                       BIT(0)
+#define MENVCFG_CBIE                       (3UL << 4)
+#define MENVCFG_CBCFE                      BIT(6)
+#define MENVCFG_CBZE                       BIT(7)
+#define MENVCFG_PBMTE                      BIT_ULL(62)
+#define MENVCFG_STCE                       BIT_ULL(63)
+
+/* For RV32 */
+#define MENVCFGH_PBMTE                     BIT(30)
+#define MENVCFGH_STCE                      BIT(31)
+
+#define SENVCFG_FIOM                       MENVCFG_FIOM
+#define SENVCFG_CBIE                       MENVCFG_CBIE
+#define SENVCFG_CBCFE                      MENVCFG_CBCFE
+#define SENVCFG_CBZE                       MENVCFG_CBZE
+
+#define HENVCFG_FIOM                       MENVCFG_FIOM
+#define HENVCFG_CBIE                       MENVCFG_CBIE
+#define HENVCFG_CBCFE                      MENVCFG_CBCFE
+#define HENVCFG_CBZE                       MENVCFG_CBZE
+#define HENVCFG_PBMTE                      MENVCFG_PBMTE
+#define HENVCFG_STCE                       MENVCFG_STCE
+
+/* For RV32 */
+#define HENVCFGH_PBMTE                      MENVCFGH_PBMTE
+#define HENVCFGH_STCE                       MENVCFGH_STCE
+
 #endif

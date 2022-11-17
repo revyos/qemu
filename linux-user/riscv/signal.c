@@ -44,8 +44,8 @@ struct target_sigcontext {
 }; /* cf. riscv-linux:arch/riscv/include/uapi/asm/ptrace.h */
 
 struct target_ucontext {
-    unsigned long uc_flags;
-    struct target_ucontext *uc_link;
+    abi_ulong uc_flags;
+    abi_ulong uc_link;
     target_stack_t uc_stack;
     target_sigset_t uc_sigmask;
     uint8_t   __unused[1024 / 8 - sizeof(target_sigset_t)];
@@ -94,7 +94,7 @@ static void setup_sigcontext(struct target_sigcontext *sc, CPURISCVState *env)
     uint32_t fcsr = riscv_csr_read(env, CSR_FCSR);
     __put_user(fcsr, &sc->fcsr);
 
-    if (env->misa & RVV) {
+    if (env->misa_ext & RVV) {
         for (i = 0; i < 32; i += 2) {
             __put_user(env->vreg[i], (uint64_t *)&sc->__v[i]);
             __put_user(env->vreg[i + 1], (uint64_t *)&sc->__v[i] + 1);
@@ -186,7 +186,7 @@ static void restore_sigcontext(CPURISCVState *env, struct target_sigcontext *sc)
     __get_user(fcsr, &sc->fcsr);
     riscv_csr_write(env, CSR_FCSR, fcsr);
 
-    if (env->misa & RVV) {
+    if (env->misa_ext & RVV) {
         for (i = 0; i < 32; i += 2) {
             __get_user(env->vreg[i], (uint64_t *)&sc->__v[i]);
             __get_user(env->vreg[i + 1], (uint64_t *)&sc->__v[i] + 1);

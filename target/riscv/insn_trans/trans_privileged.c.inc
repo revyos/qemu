@@ -18,8 +18,18 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+static inline void ignore_insns_num(DisasContext *ctx)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if ((ctx->priv_ver >= PRIV_VERSION_1_12_0) && icount_enabled()) {
+        ctx->base.num_insns--;
+    }
+#endif
+}
+
 static bool trans_ecall(DisasContext *ctx, arg_ecall *a)
 {
+    ignore_insns_num(ctx);
     /* always generates U-level ECALL, fixed in do_interrupt handler */
     generate_exception(ctx, RISCV_EXCP_U_ECALL);
     exit_tb(ctx); /* no chaining */
@@ -35,6 +45,8 @@ static bool trans_ebreak(DisasContext *ctx, arg_ebreak *a)
     uint32_t pre    = 0;
     uint32_t ebreak = 0;
     uint32_t post   = 0;
+
+    ignore_insns_num(ctx);
 
     /*
      * The RISC-V semihosting spec specifies the following
@@ -82,6 +94,7 @@ static bool trans_sret(DisasContext *ctx, arg_sret *a)
 
     if (has_ext(ctx, RVS)) {
         gen_helper_sret(cpu_pc, cpu_env, cpu_pc);
+        gen_helper_switch_context_xl(cpu_env);
         exit_tb(ctx); /* no chaining */
         ctx->base.is_jmp = DISAS_NORETURN;
     } else {
@@ -98,6 +111,7 @@ static bool trans_mret(DisasContext *ctx, arg_mret *a)
 #ifndef CONFIG_USER_ONLY
     tcg_gen_movi_tl(cpu_pc, ctx->base.pc_next);
     gen_helper_mret(cpu_pc, cpu_env, cpu_pc);
+    gen_helper_switch_context_xl(cpu_env);
     exit_tb(ctx); /* no chaining */
     ctx->base.is_jmp = DISAS_NORETURN;
     return true;

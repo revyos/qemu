@@ -22,7 +22,7 @@
 #include "hw/irq.h"
 #include "hw/sysbus.h"
 
-#define TYPE_RISCV_CLIC "riscv_clic"
+#define TYPE_RISCV_CLIC "csky_clic"
 #define RISCV_CLIC(obj) \
     OBJECT_CHECK(RISCVCLICState, (obj), TYPE_RISCV_CLIC)
 
@@ -55,6 +55,7 @@ typedef struct RISCVCLICState {
     /* Implementaion parameters */
     bool prv_s;
     bool prv_u;
+    bool nvbits;
     uint32_t num_harts;
     uint32_t num_sources;
     uint32_t clic_size;
@@ -66,7 +67,6 @@ typedef struct RISCVCLICState {
     /* Global configuration */
     uint8_t nmbits;
     uint8_t nlbits;
-    uint8_t nvbits;
     uint32_t clicinfo;
     uint32_t clicinttrig[32];
 
@@ -89,7 +89,7 @@ typedef struct RISCVCLICState {
     qemu_irq *cpu_irqs;
 } RISCVCLICState;
 
-DeviceState *riscv_clic_create(hwaddr addr, bool prv_s, bool prv_u,
+DeviceState *riscv_clic_create(hwaddr addr, bool prv_s, bool prv_u, bool vector,
                                uint32_t num_harts, uint32_t num_sources,
                                uint8_t clicintctlbits,
                                const char *version);

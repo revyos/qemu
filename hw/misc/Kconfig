@@ -174,4 +174,13 @@ config VIRT_CTRL
 config CSKY_EXIT
     bool
 
+config CSKY_MEMLOG
+    bool
+
+config CSKY_FFT
+    bool
+
+config CSKY_MCA
+    bool
+
 source macio/Kconfig

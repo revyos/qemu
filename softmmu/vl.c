@@ -43,6 +43,7 @@
 #include "sysemu/seccomp.h"
 #include "sysemu/tcg.h"
 #include "sysemu/xen.h"
+#include "exec/tracestub.h"
 
 #include "qemu/error-report.h"
 #include "qemu/sockets.h"
@@ -126,6 +127,9 @@
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 #include "qemu/guest-random.h"
+#ifdef CONFIG_MODULES
+#include "hw/csky/dynsoc.h"
+#endif
 
 #include "config-host.h"
 
@@ -252,6 +256,101 @@ static QemuOptsList qemu_accel_opts = {
          * when setting accelerator properties
          */
         { }
+    },
+};
+
+static QemuOptsList qemu_cpu_prop_opts = {
+    .name = "cpu-prop",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_cpu_prop_opts.head),
+    .desc = {
+        {
+            .name = "pctrace",
+            .type = QEMU_OPT_BOOL,
+            .help = "record pctrace or not",
+        },{
+            .name = "elrw",
+            .type = QEMU_OPT_BOOL,
+            .help = "cpu use elrw or not",
+        },{
+            .name = "mem_prot",
+            .type = QEMU_OPT_STRING,
+            .help = "indicate memory protect, mmu/mpu/no",
+        },{
+            .name = "full_mmu",
+            .type = QEMU_OPT_BOOL,
+            .help = "simulate csky MMU or not",
+        },{
+            .name = "unaligned_access",
+            .type = QEMU_OPT_BOOL,
+            .help = "cpu support unaligned data access",
+        },
+        { /* end of list */ }
+    },
+};
+
+static QemuOptsList qemu_csky_extend_opts = {
+    .name = "csky-extend",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_csky_extend_opts.head),
+    .desc = {
+        {
+            .name = "vdsp",
+            .type = QEMU_OPT_NUMBER,
+            .help = "choose vdsp as 64 or 128",
+        },{
+            .name = "jcount_start",
+            .type = QEMU_OPT_STRING,
+            .help = "set the start addr for jcount",
+        },{
+            .name = "jcount_end",
+            .type = QEMU_OPT_STRING,
+            .help = "set the end addr for jcount",
+        },{
+            .name = "exit_addr",
+            .type = QEMU_OPT_STRING,
+            .help = "the addr to exit QEMU",
+        },{
+            .name = "cpu_freq",
+            .type = QEMU_OPT_SIZE,
+            .help = "frequency of cpu and bus",
+        },{
+            .name = "mmu_default",
+            .type = QEMU_OPT_BOOL,
+            .help = "MMU on or not before load kernel",
+        },{
+            .name = "tb_trace",
+            .type = QEMU_OPT_BOOL,
+            .help = "beginning of translation block's PC",
+        },{
+            .name = "denormal",
+            .type = QEMU_OPT_BOOL,
+            .help = "fpu execute in denormalized mode",
+        },{
+            .name = "hbreak",
+            .type = QEMU_OPT_BOOL,
+            .help = "support hardware breakpoint before memory map build",
+        },{
+            .name = "exit_bkpt",
+            .type = QEMU_OPT_BOOL,
+            .help = "support exit when bkpt",
+        },
+        { /* end of list */ }
+    },
+};
+
+static QemuOptsList qemu_soc_opts = {
+    .name = "soc",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_soc_opts.head),
+    .desc = {
+        {
+            .name = "shm",
+            .type = QEMU_OPT_BOOL,
+            .help = "use share memory or not",
+        },{
+            .name = "shmkey",
+            .type = QEMU_OPT_NUMBER,
+            .help = "share memory key, range [0~9999]",
+        },
+        { /* end of list */ }
     },
 };
 
@@ -2746,6 +2845,10 @@ void qemu_init(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_trace_opts);
     qemu_plugin_add_opts();
     qemu_add_opts(&qemu_option_rom_opts);
+    qemu_add_opts(&qemu_cpu_prop_opts);
+    qemu_add_opts(&qemu_csky_extend_opts);
+    qemu_add_opts(&qemu_soc_opts);
+    qemu_add_opts(&qemu_csky_trace_opts);
     qemu_add_opts(&qemu_accel_opts);
     qemu_add_opts(&qemu_mem_opts);
     qemu_add_opts(&qemu_smp_opts);
@@ -2817,6 +2920,53 @@ void qemu_init(int argc, char **argv, char **envp)
                 /* hw initialization will check this */
                 cpu_option = optarg;
                 break;
+            case QEMU_OPTION_cpu_prop:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("cpu-prop"),
+                                               optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                break;
+            case QEMU_OPTION_csky_extend:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("csky-extend"),
+                                               optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                break;
+            case QEMU_OPTION_CPF:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("csky-trace"),
+                                                        "port=8810", false);
+                break;
+            case QEMU_OPTION_csky_trace:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("csky-trace"),
+                                                    optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                break;
+
+           case QEMU_OPTION_soc:
+#ifdef CONFIG_MODULES
+               opts = qemu_opts_parse_noisily(qemu_find_opts("soc"),
+                                              optarg, false);
+               if (!opts) {
+                   exit(1);
+               }
+
+               if (qemu_opt_get_bool(opts, "shm", false)) {
+                   int shmkey = qemu_opt_get_number(opts, "shmkey", -1);
+                   if (shmkey == -1) {
+                       error_report("shared memory(shm) connect fail");
+                       exit(1);
+                   }
+                   dynsoc_load_modules(shmkey);
+               }
+#else
+               error_report("dynsoc load support is disabled");
+               exit(1);
+#endif
+               break;
             case QEMU_OPTION_hda:
             case QEMU_OPTION_hdb:
             case QEMU_OPTION_hdc:
@@ -3711,6 +3861,26 @@ void qemu_init(int argc, char **argv, char **envp)
 
     if (!preconfig_requested) {
         qmp_x_exit_preconfig(&error_fatal);
+    }
+
+    QemuOpts *trace_opts;
+    const char *str;
+    char port[16] = {0};
+    trace_opts = qemu_opts_find(qemu_find_opts("csky-trace"), NULL);
+    if (trace_opts) {
+        str = qemu_opt_get(trace_opts, "port");
+        csky_trace_set_cpu(current_machine->cpu_type);
+        if (str != NULL) {
+                if (atoi(str)) {
+                    traceserver_start(str);
+                } else {
+                    error_report("must support an avilable port,like 8810");
+                    exit(1);
+                }
+        } else {
+            sprintf(port, "%d", DEFAULT_TRACESTUB_PORT);
+            traceserver_start(port);
+        }
     }
     qemu_init_displays();
     accel_setup_post(current_machine);

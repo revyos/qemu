@@ -243,6 +243,8 @@ float16 float16_minnum(float16, float16, float_status *status);
 float16 float16_maxnum(float16, float16, float_status *status);
 float16 float16_minnummag(float16, float16, float_status *status);
 float16 float16_maxnummag(float16, float16, float_status *status);
+float16 float16_minnum_noprop(float16, float16, float_status *status);
+float16 float16_maxnum_noprop(float16, float16, float_status *status);
 float16 float16_sqrt(float16, float_status *status);
 FloatRelation float16_compare(float16, float16, float_status *status);
 FloatRelation float16_compare_quiet(float16, float16, float_status *status);
@@ -361,6 +363,8 @@ float32 bfloat16_to_float32(bfloat16, float_status *status);
 bfloat16 float64_to_bfloat16(float64 a, float_status *status);
 float64 bfloat16_to_float64(bfloat16 a, float_status *status);
 
+int8_t bfloat16_to_int8_scalbn(bfloat16, FloatRoundMode,
+                               int, float_status *status);
 int16_t bfloat16_to_int16_scalbn(bfloat16, FloatRoundMode,
                                  int, float_status *status);
 int32_t bfloat16_to_int32_scalbn(bfloat16, FloatRoundMode,
@@ -368,6 +372,7 @@ int32_t bfloat16_to_int32_scalbn(bfloat16, FloatRoundMode,
 int64_t bfloat16_to_int64_scalbn(bfloat16, FloatRoundMode,
                                  int, float_status *status);
 
+int8_t bfloat16_to_int8(bfloat16, float_status *status);
 int16_t bfloat16_to_int16(bfloat16, float_status *status);
 int32_t bfloat16_to_int32(bfloat16, float_status *status);
 int64_t bfloat16_to_int64(bfloat16, float_status *status);
@@ -376,6 +381,8 @@ int16_t bfloat16_to_int16_round_to_zero(bfloat16, float_status *status);
 int32_t bfloat16_to_int32_round_to_zero(bfloat16, float_status *status);
 int64_t bfloat16_to_int64_round_to_zero(bfloat16, float_status *status);
 
+uint8_t bfloat16_to_uint8_scalbn(bfloat16 a, FloatRoundMode,
+                                 int, float_status *status);
 uint16_t bfloat16_to_uint16_scalbn(bfloat16 a, FloatRoundMode,
                                    int, float_status *status);
 uint32_t bfloat16_to_uint32_scalbn(bfloat16 a, FloatRoundMode,
@@ -383,6 +390,7 @@ uint32_t bfloat16_to_uint32_scalbn(bfloat16 a, FloatRoundMode,
 uint64_t bfloat16_to_uint64_scalbn(bfloat16 a, FloatRoundMode,
                                    int, float_status *status);
 
+uint8_t bfloat16_to_uint8(bfloat16 a, float_status *status);
 uint16_t bfloat16_to_uint16(bfloat16 a, float_status *status);
 uint32_t bfloat16_to_uint32(bfloat16 a, float_status *status);
 uint64_t bfloat16_to_uint64(bfloat16 a, float_status *status);
@@ -391,9 +399,11 @@ uint16_t bfloat16_to_uint16_round_to_zero(bfloat16 a, float_status *status);
 uint32_t bfloat16_to_uint32_round_to_zero(bfloat16 a, float_status *status);
 uint64_t bfloat16_to_uint64_round_to_zero(bfloat16 a, float_status *status);
 
+bfloat16 int8_to_bfloat16(int8_t a, float_status *status);
 bfloat16 int16_to_bfloat16_scalbn(int16_t a, int, float_status *status);
 bfloat16 int32_to_bfloat16_scalbn(int32_t a, int, float_status *status);
 bfloat16 int64_to_bfloat16_scalbn(int64_t a, int, float_status *status);
+bfloat16 uint8_to_bfloat16(uint8_t a, float_status *status);
 bfloat16 uint16_to_bfloat16_scalbn(uint16_t a, int, float_status *status);
 bfloat16 uint32_to_bfloat16_scalbn(uint32_t a, int, float_status *status);
 bfloat16 uint64_to_bfloat16_scalbn(uint64_t a, int, float_status *status);
@@ -420,6 +430,8 @@ bfloat16 bfloat16_min(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_max(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_minnum(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_maxnum(bfloat16, bfloat16, float_status *status);
+bfloat16 bfloat16_minnum_noprop(bfloat16, bfloat16, float_status *status);
+bfloat16 bfloat16_maxnum_noprop(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_minnummag(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_maxnummag(bfloat16, bfloat16, float_status *status);
 bfloat16 bfloat16_sqrt(bfloat16, float_status *status);
@@ -589,6 +601,8 @@ float32 float32_minnum(float32, float32, float_status *status);
 float32 float32_maxnum(float32, float32, float_status *status);
 float32 float32_minnummag(float32, float32, float_status *status);
 float32 float32_maxnummag(float32, float32, float_status *status);
+float32 float32_minnum_noprop(float32, float32, float_status *status);
+float32 float32_maxnum_noprop(float32, float32, float_status *status);
 bool float32_is_quiet_nan(float32, float_status *status);
 bool float32_is_signaling_nan(float32, float_status *status);
 float32 float32_silence_nan(float32, float_status *status);
@@ -778,6 +792,8 @@ float64 float64_minnum(float64, float64, float_status *status);
 float64 float64_maxnum(float64, float64, float_status *status);
 float64 float64_minnummag(float64, float64, float_status *status);
 float64 float64_maxnummag(float64, float64, float_status *status);
+float64 float64_minnum_noprop(float64, float64, float_status *status);
+float64 float64_maxnum_noprop(float64, float64, float_status *status);
 bool float64_is_quiet_nan(float64 a, float_status *status);
 bool float64_is_signaling_nan(float64, float_status *status);
 float64 float64_silence_nan(float64, float_status *status);
@@ -1208,6 +1224,8 @@ float128 float128_min(float128, float128, float_status *status);
 float128 float128_max(float128, float128, float_status *status);
 float128 float128_minnum(float128, float128, float_status *status);
 float128 float128_maxnum(float128, float128, float_status *status);
+float128 float128_minnum_noprop(float128, float128, float_status *status);
+float128 float128_maxnum_noprop(float128, float128, float_status *status);
 float128 float128_minnummag(float128, float128, float_status *status);
 float128 float128_maxnummag(float128, float128, float_status *status);
 bool float128_is_quiet_nan(float128, float_status *status);

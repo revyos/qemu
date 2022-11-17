@@ -19,10 +19,28 @@
 #ifndef HW_SMARTL_H
 #define HW_SMARTL_H
 
+#include "hw/riscv/riscv_hart.h"
+#include "hw/sysbus.h"
+#include "hw/boards.h"
+#include "qom/object.h"
+
 #define SMARTL_CLIC_IRQ_NUMS 256
 #define SMARTL_CLIC_VERSION "v0.8"
 #define SMARTL_CLIC_HARTS 1
 #define SMARTL_CLIC_INTCTLBITS 3
+
+#define TYPE_RISCV_SMARTL_MACHINE MACHINE_TYPE_NAME("smartl")
+typedef struct RISCVSmartlState RISCVSmartlState;
+DECLARE_INSTANCE_CHECKER(RISCVSmartlState, RISCV_SMARTL_MACHINE,
+                         TYPE_RISCV_SMARTL_MACHINE)
+
+struct RISCVSmartlState {
+    /*< private >*/
+    MachineState parent;
+
+    /*< public >*/
+    RISCVCPU* harts[2];
+};
 
 enum {
     SMARTL_SRAM0,
@@ -32,9 +50,12 @@ enum {
     SMARTL_SYSTEMMAP,
     SMARTL_TIMER,
     SMARTL_UART,
+    SMARTL_TIMER2,
+    SMARTL_UART2,
     SMARTL_CLINT,
     SMARTL_CLIC,
     SMARTL_EXIT,
+    SMARTL_PMU,
 };
 
 #endif

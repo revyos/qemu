@@ -73,6 +73,7 @@ static const MemMapEntry sifive_e_memmap[] = {
 static void sifive_e_machine_init(MachineState *machine)
 {
     const MemMapEntry *memmap = sifive_e_memmap;
+    uint64_t start_pc = 0;
 
     SiFiveEState *s = RISCV_E_MACHINE(machine);
     MemoryRegion *sys_mem = get_system_memory();
@@ -109,8 +110,11 @@ static void sifive_e_machine_init(MachineState *machine)
                           memmap[SIFIVE_E_DEV_MROM].base, &address_space_memory);
 
     if (machine->kernel_filename) {
-        riscv_load_kernel(machine->kernel_filename,
+        start_pc = riscv_load_kernel(machine->kernel_filename,
                           memmap[SIFIVE_E_DEV_DTIM].base, NULL);
+    }
+    for (i = 0; i < machine->smp.cpus; i++) {
+        s->soc.cpus.harts[i].env.elf_start = start_pc;
     }
 }
 
@@ -210,7 +214,7 @@ static void sifive_e_soc_realize(DeviceState *dev, Error **errp)
         memmap[SIFIVE_E_DEV_PLIC].size);
     sifive_clint_create(memmap[SIFIVE_E_DEV_CLINT].base,
         memmap[SIFIVE_E_DEV_CLINT].size, 0, ms->smp.cpus,
-        SIFIVE_SIP_BASE, SIFIVE_TIMECMP_BASE, SIFIVE_TIME_BASE,
+        SIFIVE_SIP_BASE, 0, SIFIVE_TIMECMP_BASE, 0, SIFIVE_TIME_BASE,
         SIFIVE_CLINT_TIMEBASE_FREQ, false);
     create_unimplemented_device("riscv.sifive.e.aon",
         memmap[SIFIVE_E_DEV_AON].base, memmap[SIFIVE_E_DEV_AON].size);

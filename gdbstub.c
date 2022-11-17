@@ -50,6 +50,7 @@
 #include "sysemu/runstate.h"
 #include "semihosting/semihost.h"
 #include "exec/exec-all.h"
+#include "exec/pctrace.h"
 #include "sysemu/replay.h"
 
 #ifdef CONFIG_USER_ONLY
@@ -411,6 +412,7 @@ static void reset_gdbserver_state(void)
 #endif
 
 bool gdb_has_xml;
+bool is_gdbserver_start = FALSE;
 
 #ifdef CONFIG_USER_ONLY
 
@@ -1005,7 +1007,6 @@ void gdb_register_coprocessor(CPUState *cpu,
     }
 }
 
-#ifndef CONFIG_USER_ONLY
 /* Translate GDB watchpoint type to a flags value for cpu_watchpoint_* */
 static inline int xlat_gdb_type(CPUState *cpu, int gdbtype)
 {
@@ -1023,7 +1024,6 @@ static inline int xlat_gdb_type(CPUState *cpu, int gdbtype)
     }
     return cputype;
 }
-#endif
 
 static int gdb_breakpoint_insert(int type, target_ulong addr, target_ulong len)
 {
@@ -1044,7 +1044,6 @@ static int gdb_breakpoint_insert(int type, target_ulong addr, target_ulong len)
             }
         }
         return err;
-#ifndef CONFIG_USER_ONLY
     case GDB_WATCHPOINT_WRITE:
     case GDB_WATCHPOINT_READ:
     case GDB_WATCHPOINT_ACCESS:
@@ -1056,7 +1055,6 @@ static int gdb_breakpoint_insert(int type, target_ulong addr, target_ulong len)
             }
         }
         return err;
-#endif
     default:
         return -ENOSYS;
     }
@@ -1081,7 +1079,6 @@ static int gdb_breakpoint_remove(int type, target_ulong addr, target_ulong len)
             }
         }
         return err;
-#ifndef CONFIG_USER_ONLY
     case GDB_WATCHPOINT_WRITE:
     case GDB_WATCHPOINT_READ:
     case GDB_WATCHPOINT_ACCESS:
@@ -1092,7 +1089,6 @@ static int gdb_breakpoint_remove(int type, target_ulong addr, target_ulong len)
                 break;
         }
         return err;
-#endif
     default:
         return -ENOSYS;
     }
@@ -1464,6 +1460,127 @@ typedef struct GdbCmdParseEntry {
     bool cmd_startswith;
     const char *schema;
 } GdbCmdParseEntry;
+
+static inline uint32_t get_next_pctrace_index(uint32_t index)
+{
+    if (index == 0) {
+        return TB_TRACE_NUM - 1;
+    } else {
+        return index - 1;
+    }
+}
+
+#define TRACE_INFO_SIZE (TARGET_LONG_BITS / 8)
+static int gdb_read_pctrace(uint8_t *mem_buf,
+                            int mem_len, unsigned int num)
+{
+#if defined(TARGET_CSKY) || defined(TARGET_RISCV)
+    CPUState *cpu = gdbserver_state.g_cpu;
+    CPUArchState *env = cpu->env_ptr;
+    struct csky_trace_info *trace_info = env->trace_info;
+    uint32_t index = (env->trace_index - 1) % TB_TRACE_NUM;
+    uint32_t i, j = 0;
+    int len = 0;
+    uint8_t *addr = mem_buf;
+
+    if (env->pctrace != 1) {
+        return len;
+    }
+
+    if ((num + 1) * TRACE_INFO_SIZE > mem_len) {
+        num = mem_len / TRACE_INFO_SIZE - 1;
+    }
+    *(uint32_t *)(addr + len) = TRACE_INFO_SIZE;
+    len += 4;
+
+    for (i = 0; i < num; i++) {
+        /* Traverse the ring buffer */
+        while (j < TB_TRACE_NUM) {
+            j++;
+
+            if (!trace_info[index].notjmp) { /* Find a jump pc */
+                *(target_ulong *)(addr + len) = trace_info[index].tb_pc;
+                len += TRACE_INFO_SIZE;
+                index = get_next_pctrace_index(index);
+                break;
+            }
+            index = get_next_pctrace_index(index);
+        }
+        if (j == TB_TRACE_NUM) { /* Not record enough pc trace */
+            break;
+        }
+    }
+
+    return len;
+#else
+    return -1;
+#endif
+}
+
+static int gdb_handle_packet_usr_do_pctrace(const char * line_buf)
+{
+    g_autoptr(GString) hexbuf = g_string_new("");
+    uint8_t mem_buf[MAX_PACKET_LENGTH] = {0};
+
+    unsigned int num = 0;
+    const char *p = line_buf;
+    int ch = *p++;
+
+    switch (ch) {
+    case ' ':
+        if (*p == '\0') {
+            break;
+        }
+        num = strtoul(p, (char **)&p, 10);
+        break;
+    default:
+        break;
+    }
+
+    int len = 0;
+    len = gdb_read_pctrace(mem_buf, MAX_PACKET_LENGTH / 2, num);
+    if (!len) {
+        return -1;
+    }
+
+    memtohex(hexbuf, mem_buf, len);
+    put_packet(hexbuf->str);
+
+    return 0;
+}
+
+typedef int (*cmd_cb)(const char * line_buf);
+struct {
+    const char *cmd;
+    cmd_cb cmd_do;
+    int ignored;
+} gdb_handle_packet_usr_tab[] = {
+    {"pctrace", gdb_handle_packet_usr_do_pctrace, 0},
+};
+
+static void handle_gen_usr(GArray *params, void *user_ctx)
+{
+    int ret = -1;
+    const char *p = get_param(params, 0)->data;
+    int i = 0;
+    int size = ARRAY_SIZE(gdb_handle_packet_usr_tab);
+
+    for (i = 0; i < size; i++) {
+        int len = strlen(gdb_handle_packet_usr_tab[i].cmd);
+        const char *cmd = gdb_handle_packet_usr_tab[i].cmd;
+
+        if (!strncmp(cmd, p, len)) {
+            if (!gdb_handle_packet_usr_tab[i].ignored
+                && gdb_handle_packet_usr_tab[i].cmd_do) {
+                ret = gdb_handle_packet_usr_tab[i].cmd_do(p + len);
+            }
+            break;
+        }
+    }
+    if (ret != 0) {
+        put_packet("");
+    }
+}
 
 static inline int startswith(const char *string, const char *pattern)
 {
@@ -2718,6 +2835,17 @@ static int gdb_handle_packet(const char *line_buf)
             cmd_parser = &gen_set_cmd_desc;
         }
         break;
+    case 'u':
+        {
+            static const GdbCmdParseEntry gen_usr_cmd_desc = {
+                .handler = handle_gen_usr,
+                .cmd = "u",
+                .cmd_startswith = 1,
+                .schema = "s0"
+            };
+            cmd_parser = &gen_usr_cmd_desc;
+        }
+        break;
     default:
         /* put empty packet */
         put_packet("");
@@ -3095,6 +3223,7 @@ void gdb_exit(int code)
 #ifndef CONFIG_USER_ONLY
   qemu_chr_fe_deinit(&gdbserver_state.chr, true);
 #endif
+  is_gdbserver_start = FALSE;
 }
 
 /*
@@ -3126,6 +3255,7 @@ static void create_default_process(GDBState *s)
 int
 gdb_handlesig(CPUState *cpu, int sig)
 {
+    const char *type;
     char buf[256];
     int n;
 
@@ -3133,14 +3263,33 @@ gdb_handlesig(CPUState *cpu, int sig)
         return sig;
     }
 
+    if (cpu->watchpoint_hit) {
+        switch (cpu->watchpoint_hit->flags & BP_MEM_ACCESS) {
+            case BP_MEM_READ:
+                type = "r";
+                break;
+            case BP_MEM_ACCESS:
+                type = "a";
+                break;
+            default:
+                type = "";
+                break;
+        }
+        snprintf(buf, sizeof(buf),
+                "T%02xthread:%02x;%swatch:" TARGET_FMT_lx ";",
+                GDB_SIGNAL_TRAP, cpu_gdb_index(cpu), type,
+                (target_ulong)cpu->watchpoint_hit->vaddr);
+        cpu->watchpoint_hit = NULL;
+        put_packet(buf);
+    } else if (sig != 0) {
+        snprintf(buf, sizeof(buf), "S%02x", target_signal_to_gdb(sig));
+        put_packet(buf);
+    }
+
     /* disable single step if it was enabled */
     cpu_single_step(cpu, 0);
     tb_flush(cpu);
 
-    if (sig != 0) {
-        snprintf(buf, sizeof(buf), "S%02x", target_signal_to_gdb(sig));
-        put_packet(buf);
-    }
     /* put_packet() might have detected that the peer terminated the
        connection.  */
     if (gdbserver_state.fd < 0) {
@@ -3323,9 +3472,11 @@ int gdbserver_start(const char *port_or_path)
     }
 
     if (port > 0 && gdb_accept_tcp(gdb_fd)) {
+        is_gdbserver_start = TRUE;
         return 0;
     } else if (gdb_accept_socket(gdb_fd)) {
         gdbserver_state.socket_path = g_strdup(port_or_path);
+        is_gdbserver_start = TRUE;
         return 0;
     }
 
@@ -3546,7 +3697,7 @@ int gdbserver_start(const char *device)
     gdbserver_state.state = chr ? RS_IDLE : RS_INACTIVE;
     gdbserver_state.mon_chr = mon_chr;
     gdbserver_state.current_syscall_cb = NULL;
-
+    is_gdbserver_start = TRUE;
     return 0;
 }
 

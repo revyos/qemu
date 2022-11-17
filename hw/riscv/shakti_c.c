@@ -125,7 +125,7 @@ static void shakti_c_soc_state_realize(DeviceState *dev, Error **errp)
 
     sifive_clint_create(shakti_c_memmap[SHAKTI_C_CLINT].base,
         shakti_c_memmap[SHAKTI_C_CLINT].size, 0, 1,
-        SIFIVE_SIP_BASE, SIFIVE_TIMECMP_BASE, SIFIVE_TIME_BASE,
+        SIFIVE_SIP_BASE, 0, SIFIVE_TIMECMP_BASE, 0, SIFIVE_TIME_BASE,
         SIFIVE_CLINT_TIMEBASE_FREQ, false);
 
     qdev_prop_set_chr(DEVICE(&(sss->uart)), "chardev", serial_hd(0));

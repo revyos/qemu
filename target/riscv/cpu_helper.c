@@ -22,6 +22,7 @@
 #include "qemu/main-loop.h"
 #include "cpu.h"
 #include "exec/exec-all.h"
+#include "exec/tracestub.h"
 #include "tcg/tcg-op.h"
 #include "trace.h"
 #include "semihosting/common-semi.h"
@@ -37,6 +38,113 @@ int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch)
 #else
     return env->priv;
 #endif
+}
+
+RISCVMXL cpu_get_xl(CPURISCVState *env)
+{
+#if defined(TARGET_RISCV32)
+    return MXL_RV32;
+#elif defined(CONFIG_USER_ONLY)
+    return MXL_RV64;
+#else
+    RISCVMXL xl = riscv_cpu_mxl(env);
+
+    /*
+     * When emulating a 32-bit-only cpu, use RV32.
+     * When emulating a 64-bit cpu, and MXL has been reduced to RV32,
+     * MSTATUSH doesn't have UXL/SXL, therefore XLEN cannot be widened
+     * back to RV64 for lower privs.
+     */
+    if (xl != MXL_RV32) {
+        switch (env->priv) {
+        case PRV_M:
+            break;
+        case PRV_U:
+            xl = get_field(env->mstatus, MSTATUS64_UXL);
+            break;
+        default: /* PRV_S | PRV_H */
+            xl = get_field(env->mstatus, MSTATUS64_SXL);
+            break;
+        }
+    }
+    return xl;
+#endif
+}
+
+void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
+                          target_ulong *cs_base, uint32_t *pflags)
+{
+    uint32_t flags = 0;
+
+    *pc = cpu_get_xl(env) == MXL_RV32 ? env->pc & UINT32_MAX : env->pc;
+    *cs_base = 0;
+
+    if (riscv_has_ext(env, RVV)) {
+        /*
+         * If env->vl equals to VLMAX, we can use generic vector operation
+         * expanders (GVEC) to accerlate the vector operations.
+         * However, as LMUL could be a fractional number. The maximum
+         * vector size can be operated might be less than 8 bytes,
+         * which is not supported by GVEC. So we set vl_eq_vlmax flag to true
+         * only when maxsz >= 8 bytes.
+         */
+        uint32_t vlmax;
+        bool vl_eq_vlmax;
+        if (env->vext_ver == VEXT_VERSION_0_07_1) {
+            vlmax = vext_get_vlmax_7(env_archcpu(env), env->vtype);
+            vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl);
+            flags = FIELD_DP32(flags, TB_FLAGS, VILL,
+                               FIELD_EX64(env->vtype, VTYPE_7, VILL));
+            flags = FIELD_DP32(flags, TB_FLAGS, SEW,
+                               FIELD_EX64(env->vtype, VTYPE_7, VSEW));
+            flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
+                               FIELD_EX64(env->vtype, VTYPE_7, VLMUL));
+        } else {
+            uint32_t sew = FIELD_EX64(env->vtype, VTYPE, VSEW);
+            uint32_t maxsz;
+            vlmax = vext_get_vlmax(env_archcpu(env), env->vtype);
+            maxsz = vlmax << sew;
+            vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl)
+                          && (maxsz >= 8);
+            flags = FIELD_DP32(flags, TB_FLAGS, VILL,
+                        FIELD_EX64(env->vtype, VTYPE, VILL));
+            flags = FIELD_DP32(flags, TB_FLAGS, SEW, sew);
+            flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
+                        FIELD_EX64(env->vtype, VTYPE, VLMUL));
+        }
+        flags = FIELD_DP32(flags, TB_FLAGS, VL_EQ_VLMAX, vl_eq_vlmax);
+    } else {
+        flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
+    }
+
+#ifdef CONFIG_USER_ONLY
+    flags |= TB_FLAGS_MSTATUS_FS;
+    flags |= TB_FLAGS_MSTATUS_VS;
+#else
+    flags |= cpu_mmu_index(env, 0);
+    if (riscv_cpu_fp_enabled(env)) {
+        flags |= env->mstatus & MSTATUS_FS;
+    }
+
+    if (riscv_has_ext(env, RVH)) {
+        if (env->priv == PRV_M ||
+            (env->priv == PRV_S && !riscv_cpu_virt_enabled(env)) ||
+            (env->priv == PRV_U && !riscv_cpu_virt_enabled(env) &&
+                get_field(env->hstatus, HSTATUS_HU))) {
+            flags = FIELD_DP32(flags, TB_FLAGS, HLSX, 1);
+        }
+    }
+    if (riscv_cpu_vector_enabled(env)) {
+        flags |= env->mstatus & MSTATUS_VS;
+    }
+#endif
+
+    if (riscv_has_ext(env, RVXTHEAD)) { /* Todo: a formal name for half float */
+        flags = FIELD_DP32(flags, TB_FLAGS, BF16, env->bf16);
+    }
+    flags = FIELD_DP32(flags, TB_FLAGS, XL, cpu_get_xl(env));
+
+    *pflags = flags;
 }
 
 #ifndef CONFIG_USER_ONLY
@@ -114,7 +222,8 @@ bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request)
         int mode = (env->exccode >> 12) & 0b11;
         int enabled = riscv_cpu_local_irq_mode_enabled(env, mode);
         if (enabled) {
-            cs->exception_index = RISCV_EXCP_INT_CLIC | env->exccode;
+            cs->exception_index = RISCV_EXCP_INT_FLAG | RISCV_EXCP_INT_CLIC |
+                                  env->exccode;
             cs->interrupt_request = cs->interrupt_request & ~CPU_INTERRUPT_CLIC;
             riscv_cpu_do_interrupt(cs);
             return true;
@@ -139,11 +248,24 @@ bool riscv_cpu_fp_enabled(CPURISCVState *env)
     return false;
 }
 
+/* Return true is vector support is currently enabled */
+bool riscv_cpu_vector_enabled(CPURISCVState *env)
+{
+    if (env->mstatus & MSTATUS_VS) {
+        if (riscv_cpu_virt_enabled(env) && !(env->mstatus_hs & MSTATUS_VS)) {
+            return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env)
 {
     uint64_t mstatus_mask = MSTATUS_MXR | MSTATUS_SUM | MSTATUS_FS |
                             MSTATUS_SPP | MSTATUS_SPIE | MSTATUS_SIE |
-                            MSTATUS64_UXL;
+                            MSTATUS64_UXL | MSTATUS_VS;
     bool current_virt = riscv_cpu_virt_enabled(env);
 
     g_assert(riscv_has_ext(env, RVH));
@@ -330,24 +452,26 @@ static int get_physical_address_pmp(CPURISCVState *env, int *prot,
                                     int mode)
 {
     pmp_priv_t pmp_priv;
-    target_ulong tlb_size_pmp = 0;
+    int pmp_index = -1;
 
     if (!riscv_feature(env, RISCV_FEATURE_PMP)) {
         *prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
         return TRANSLATE_SUCCESS;
     }
 
-    if (!pmp_hart_has_privs(env, addr, size, 1 << access_type, &pmp_priv,
-                            mode)) {
+    pmp_index = pmp_hart_has_privs(env, addr, size, 1 << access_type,
+                                   &pmp_priv, mode);
+    if (pmp_index < 0) {
         *prot = 0;
         return TRANSLATE_PMP_FAIL;
     }
 
     *prot = pmp_priv_to_page_prot(pmp_priv);
-    if (tlb_size != NULL) {
-        if (pmp_is_range_in_tlb(env, addr & ~(*tlb_size - 1), &tlb_size_pmp)) {
-            *tlb_size = tlb_size_pmp;
-        }
+    if ((tlb_size != NULL) && pmp_index != MAX_RISCV_PMPS) {
+        target_ulong tlb_sa = addr & ~(*tlb_size - 1);
+        target_ulong tlb_ea = tlb_sa + *tlb_size - 1;
+
+        *tlb_size = pmp_get_tlb_size(env, pmp_index, tlb_sa, tlb_ea);
     }
 
     return TRANSLATE_SUCCESS;
@@ -388,6 +512,10 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     int mode = mmu_idx & TB_FLAGS_PRIV_MMU_MASK;
     bool use_background = false;
+    hwaddr ppn;
+    RISCVCPU *cpu = env_archcpu(env);
+    int napot_bits = 0;
+    target_ulong napot_mask;
 
     /*
      * Check if we should use the background registers for the two
@@ -435,7 +563,7 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
 
     if (first_stage == true) {
         if (use_background) {
-            if (riscv_cpu_is_32bit(env)) {
+            if (riscv_cpu_mxl(env) == MXL_RV32) {
                 base = (hwaddr)get_field(env->vsatp, SATP32_PPN) << PGSHIFT;
                 vm = get_field(env->vsatp, SATP32_MODE);
             } else {
@@ -443,7 +571,7 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
                 vm = get_field(env->vsatp, SATP64_MODE);
             }
         } else {
-            if (riscv_cpu_is_32bit(env)) {
+            if (riscv_cpu_mxl(env) == MXL_RV32) {
                 base = (hwaddr)get_field(env->satp, SATP32_PPN) << PGSHIFT;
                 vm = get_field(env->satp, SATP32_MODE);
             } else {
@@ -453,7 +581,7 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
         }
         widened = 0;
     } else {
-        if (riscv_cpu_is_32bit(env)) {
+        if (riscv_cpu_mxl(env) == MXL_RV32) {
             base = (hwaddr)get_field(env->hgatp, SATP32_PPN) << PGSHIFT;
             vm = get_field(env->hgatp, SATP32_MODE);
         } else {
@@ -546,24 +674,37 @@ restart:
         }
 
         target_ulong pte;
-        hwaddr ppn;
-        if (riscv_cpu_is_32bit(env)) {
+        if (riscv_cpu_mxl(env) == MXL_RV32) {
             pte = address_space_ldl(cs->as, pte_addr, attrs, &res);
-            ppn = pte >> PTE_PPN_SHIFT;
         } else {
             pte = address_space_ldq(cs->as, pte_addr, attrs, &res);
-            ppn = (pte & (~0xffc0000000000000ll)) >> PTE_PPN_SHIFT;
         }
 
         if (res != MEMTX_OK) {
             return TRANSLATE_FAIL;
         }
 
+        if (riscv_cpu_sxl(env) == MXL_RV32) {
+            ppn = pte >> PTE_PPN_SHIFT;
+        } else if (cpu->cfg.ext_svpbmt || cpu->cfg.ext_svnapot) {
+            ppn = (pte & (target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT;
+        } else {
+            ppn = pte >> PTE_PPN_SHIFT;
+            if ((pte & ~(target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT) {
+                return TRANSLATE_FAIL;
+            }
+        }
+
         if (!(pte & PTE_V)) {
             /* Invalid PTE */
             return TRANSLATE_FAIL;
+        } else if (!cpu->cfg.ext_svpbmt && (pte & PTE_PBMT)) {
+            return TRANSLATE_FAIL;
         } else if (!(pte & (PTE_R | PTE_W | PTE_X))) {
             /* Inner PTE, continue walking */
+            if (pte & (PTE_D | PTE_A | PTE_U | PTE_ATTR)) {
+                return TRANSLATE_FAIL;
+            }
             base = ppn << PGSHIFT;
         } else if ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_W) {
             /* Reserved leaf PTE flags: PTE_W */
@@ -637,8 +778,18 @@ restart:
             /* for superpage mappings, make a fake leaf PTE for the TLB's
                benefit. */
             target_ulong vpn = addr >> PGSHIFT;
-            *physical = ((ppn | (vpn & ((1L << ptshift) - 1))) << PGSHIFT) |
-                        (addr & ~TARGET_PAGE_MASK);
+
+            if (cpu->cfg.ext_svnapot && (pte & PTE_N)) {
+                napot_bits = ctzl(ppn) + 1;
+                if ((i != (levels - 1)) || (napot_bits != 4)) {
+                    return TRANSLATE_FAIL;
+                }
+            }
+
+            napot_mask = (1 << napot_bits) - 1;
+            *physical = (((ppn & ~napot_mask) | (vpn & napot_mask) |
+                          (vpn & (((target_ulong)1 << ptshift) - 1))
+                         ) << PGSHIFT) | (addr & ~TARGET_PAGE_MASK);
 
             /* set permissions on the TLB entry */
             if ((pte & PTE_R) || ((pte & PTE_X) && mxr)) {
@@ -667,7 +818,7 @@ static void raise_mmu_exception(CPURISCVState *env, target_ulong address,
     int page_fault_exceptions, vm;
     uint64_t stap_mode;
 
-    if (riscv_cpu_is_32bit(env)) {
+    if (riscv_cpu_mxl(env) == MXL_RV32) {
         stap_mode = SATP32_MODE;
     } else {
         stap_mode = SATP64_MODE;
@@ -951,8 +1102,9 @@ static target_ulong riscv_intr_pc(CPURISCVState *env, target_ulong tvec,
 {
     int mode1 = tvec & 0b11, mode2 = tvec & 0b111111;
     CPUState *cs = env_cpu(env);
+    target_ulong new_pc = 0;
 
-    if (!(async || clic)) {
+    if (!async) {
         return tvec & ~0b11;
     }
     /* bits [1:0] encode mode; 0 = direct, 1 = vectored, 2 >= reserved */
@@ -973,18 +1125,15 @@ static target_ulong riscv_intr_pc(CPURISCVState *env, target_ulong tvec,
                  * pc := M[TBASE + XLEN/8 * exccode)] & ~1,
                  * TBASE = mtvt[XLEN-1:6]<<6
                  */
-                int size = TARGET_LONG_BITS / 8;
+                int size = 2 << cpu_get_xl(env);
                 target_ulong tbase = (tvt & ~0b111111) + size * cause;
-                void *host = tlb_vaddr_to_host(env, tbase, MMU_DATA_LOAD, mode);
-                if (host != NULL) {
-                    target_ulong new_pc = ldn_p(host, size);
-                    if (tlb_vaddr_to_host(env, new_pc, MMU_INST_FETCH, mode)) {
-                        return new_pc;
-                    }
-                }
-                qemu_log_mask(LOG_GUEST_ERROR,
-                              "CLIC: load trap handler error!\n");
-                exit(1);
+		/*
+		 * Fixme: tbase is a virtual address, so it should be
+		 * translated to physical address and check against PMP.
+		 *
+		 */
+		cpu_physical_memory_read(tbase, &new_pc, size);
+		return new_pc;
             }
         }
         g_assert_not_reached();
@@ -1014,6 +1163,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     bool async = !!(cs->exception_index & RISCV_EXCP_INT_FLAG);
     bool clic = !!(cs->exception_index & RISCV_EXCP_INT_CLIC);
     target_ulong cause = cs->exception_index & RISCV_EXCP_INT_MASK;
+    target_ulong exccode = clic ? cause & 0xfff : cause;
     target_ulong deleg = async ? env->mideleg : env->medeleg;
     bool write_tval = false;
     target_ulong tval = 0;
@@ -1090,14 +1240,14 @@ void riscv_cpu_do_interrupt(CPUState *cs)
             cause < TARGET_LONG_BITS && ((deleg >> cause) & 1) ? PRV_S : PRV_M;
     }
 
-    trace_riscv_trap(env->mhartid, async, cause, env->pc, tval,
-                     riscv_cpu_get_trap_name(cause, async));
+    trace_riscv_trap(env->mhartid, async, exccode, env->pc, tval,
+                     riscv_cpu_get_trap_name(exccode, async, clic));
 
     qemu_log_mask(CPU_LOG_INT,
                   "%s: hart:"TARGET_FMT_ld", async:%d, cause:"TARGET_FMT_lx", "
                   "epc:0x"TARGET_FMT_lx", tval:0x"TARGET_FMT_lx", desc=%s\n",
-                  __func__, env->mhartid, async, cause, env->pc, tval,
-                  riscv_cpu_get_trap_name(cause, async));
+                  __func__, env->mhartid, async, exccode, env->pc, tval,
+                  riscv_cpu_get_trap_name(exccode, async, clic));
 
     if (mode == PRV_S) {
         /* handle the trap in S-mode */
@@ -1152,8 +1302,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         s = set_field(s, MSTATUS_SPP, env->priv);
         s = set_field(s, MSTATUS_SIE, 0);
         env->mstatus = s;
-        env->scause = cause | ((target_ulong)(async | clic) <<
-                               (TARGET_LONG_BITS - 1));
+        env->scause = cause | ((target_ulong)async << (TARGET_LONG_BITS - 1));
         env->sepc = env->pc;
         env->stval = tval;
         env->htval = htval;
@@ -1188,8 +1337,17 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         env->mepc = env->pc;
         env->mtval = tval;
         env->mtval2 = mtval2;
+        if (tfilter.enable) {
+            if (env->mcause & (RISCV_EXCP_INT_FLAG)) {
+                write_trace_8_24(INST_EXCP, 8, (env->mcause & RISCV_EXCP_INT_MASK) +
+                                 32, env->mepc);
+            } else {
+                write_trace_8_24(INST_EXCP, 8, env->mcause, env->mepc);
+            }
+        }
         if (clic) {
             target_ulong mpil = get_field(env->mcause, MCAUSE_MPIL);
+            assert((target_long)env->mcause < 0);
             if ((mpil == 0) && (env->mexstatus & MEXSTATUS_SPSWAP)) {
                 target_ulong tmp = env->mscratch;
                 env->mscratch = env->gpr[2];
@@ -1198,6 +1356,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         }
         env->pc = riscv_intr_pc(env, env->mtvec, env->mtvt, async,
                                 clic, cause & 0xfff, PRV_M);
+        env->excp_vld = 1;
         riscv_cpu_set_mode(env, PRV_M);
     }
 

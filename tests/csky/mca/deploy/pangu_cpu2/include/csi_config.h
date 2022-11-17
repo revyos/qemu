@@ -1,0 +1,11 @@
+#ifndef __CSI_CONFIG_H__
+#define __CSI_CONFIG_H__
+#define CONFIG_ARCH_CSKY 1
+#define CONFIG_CHIP_YUNVOICE2 1
+#define CONFIG_CHIP_YUNVOICE2_CPU2 1
+#define CONFIG_KERNEL_NONE 1
+#define CONFIG_HAVE_VIC 1
+
+// Stack size.
+#define CONFIG_ARCH_INTERRUPTSTACK 4096
+#endif

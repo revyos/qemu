@@ -16,313 +16,221 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define GET_GPR_R                    \
-    TCGv src1, src2, dst;            \
-    src1 = tcg_temp_new();           \
-    src2 = tcg_temp_new();           \
-    dst = tcg_temp_new();            \
-    gen_get_gpr(src1, a->rs1);       \
-    gen_get_gpr(src2, a->rs2);       \
-    gen_get_gpr(dst, a->rd);
+#define GET_GPR_DS_R(EXT_MODE)             \
+    TCGv src1, src2, src3, dst;            \
+    src1 = get_gpr(ctx, a->rs1, EXT_MODE); \
+    src2 = get_gpr(ctx, a->rs2, EXT_MODE); \
+    src3 = get_gpr(ctx, a->rd, EXT_MODE);  \
+    dst = dest_gpr(ctx, a->rd);
 
-#define FREE_GPR_R                   \
-    tcg_temp_free(src1);             \
-    tcg_temp_free(src2);             \
-    tcg_temp_free(dst);
+#define GET_GPR_R(EXT_MODE)                \
+    TCGv src1, src2, dst;                  \
+    src1 = get_gpr(ctx, a->rs1, EXT_MODE); \
+    src2 = get_gpr(ctx, a->rs2, EXT_MODE); \
+    dst = dest_gpr(ctx, a->rd);
 
-#define SET_GPR_R  gen_set_gpr(a->rd, dst);
-
-#define GET_GPR_R2                  \
-    TCGv src1, dst;                 \
-    src1 = tcg_temp_new();          \
-    dst = tcg_temp_new();           \
-    gen_get_gpr(src1, a->rs1);      \
-    gen_get_gpr(dst, a->rd);
-
-#define FREE_GPR_R2                 \
-    tcg_temp_free(src1);            \
-    tcg_temp_free(dst);
-
-#define SET_GPR_R2                  \
-    gen_set_gpr(a->rs1, src1);      \
-    gen_set_gpr(a->rd, dst);
-
-#define SET_GPR_RS1                 \
-    gen_set_gpr(a->rs1, src1);
+#define GET_GPR_R2(EXT_MODE)               \
+    TCGv src1, dst;                        \
+    src1 = get_gpr(ctx, a->rs1, EXT_MODE); \
+    dst = dest_gpr(ctx, a->rd);
 
 static bool trans_addsl(DisasContext *ctx, arg_addsl *a)
 {
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(dst, src1, src2);
-    SET_GPR_R
-    FREE_GPR_R
+    TCGv t2 = temp_new(ctx);
+    GET_GPR_R(EXT_ZERO);
+
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(dst, src1, t2);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_srri(DisasContext *ctx, arg_srri *a)
 {
-    TCGv src1, dst;
-    TCGv imm = tcg_temp_new();
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    tcg_gen_movi_tl(imm, a->imm6);
-    gen_helper_srri(dst, src1, imm);
-    SET_GPR_R
-    tcg_temp_free(imm);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    TCGv imm = tcg_constant_tl(a->imm6);
+    GET_GPR_R2(EXT_ZERO);
+    gen_helper_srri(dst, src1, imm, tcg_constant_tl(ctx->xl));
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_tstnbz(DisasContext *ctx, arg_tstnbz *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    gen_helper_tstnbz(dst, src1);
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    GET_GPR_R2(EXT_ZERO);
+    gen_helper_tstnbz(dst, src1, tcg_constant_tl(ctx->xl));
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_rev(DisasContext *ctx, arg_rev *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-
-    tcg_gen_bswap_tl(dst, src1);
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    GET_GPR_R2(EXT_ZERO);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_bswap32_tl(dst, src1, TCG_BSWAP_OS);
+    } else {
+        tcg_gen_bswap_tl(dst, src1);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_ff0(DisasContext *ctx, arg_ff0 *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    gen_helper_ff0(dst, src1);
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    GET_GPR_R2(EXT_ZERO);
+    gen_helper_ff0(dst, src1, tcg_constant_tl(ctx->xl));
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_ff1(DisasContext *ctx, arg_ff1 *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    gen_helper_ff1(dst, src1);
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    GET_GPR_R2(EXT_ZERO);
+    gen_helper_ff1(dst, src1, tcg_constant_tl(ctx->xl));
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_tst(DisasContext *ctx, arg_tst *a)
 {
-    TCGv src1, dst;
-    TCGv imm = tcg_temp_new();
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    tcg_gen_movi_tl(imm, a->imm6);
+    TCGv imm = tcg_constant_tl(a->imm6);
+    GET_GPR_R2(EXT_NONE);
     gen_helper_tst(dst, src1, imm);
-    SET_GPR_R
-    tcg_temp_free(imm);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_mveqz(DisasContext *ctx, arg_mveqz *a)
 {
-    TCGv src1 ,src2, dst;
-    TCGLabel *l1 = NULL;
-    l1 = gen_new_label();
-    src1 = tcg_temp_local_new();
-    dst = tcg_temp_local_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-    gen_get_gpr(dst, a->rd);
-    tcg_gen_brcondi_tl(TCG_COND_NE, src2, 0, l1);
-    tcg_gen_mov_tl(dst, src1);
-    SET_GPR_R
-    gen_set_label(l1);
-    FREE_GPR_R
+    GET_GPR_DS_R(EXT_NONE);
+    tcg_gen_movcond_tl(TCG_COND_EQ, dst, src2, ctx->zero, src1, src3);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_mvnez(DisasContext *ctx, arg_mvnez *a)
 {
-    TCGv src1 ,src2, dst;
-    TCGLabel *l1 = NULL;
-    l1 = gen_new_label();
-    src1 = tcg_temp_local_new();
-    dst = tcg_temp_local_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-    gen_get_gpr(dst, a->rd);
-    tcg_gen_brcondi_tl(TCG_COND_EQ, src2, 0, l1);
-    tcg_gen_mov_tl(dst, src1);
-    SET_GPR_R
-    gen_set_label(l1);
-    FREE_GPR_R
+    GET_GPR_DS_R(EXT_NONE);
+    tcg_gen_movcond_tl(TCG_COND_NE, dst, src2, ctx->zero, src1, src3);
+    gen_set_gpr(ctx, a->rd, dst);
+    return true;
+}
+
+static bool gen_mulx_tl(DisasContext *ctx, arg_r *a,
+                        void (*func)(TCGv, TCGv, TCGv))
+{
+    TCGv t1, t2, d1;
+    GET_GPR_R(EXT_NONE);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+
+    tcg_gen_mulu2_tl(t1, t2, src1, src2);
+    func(dst, d1, t1);
+    gen_set_gpr(ctx, a->rd, dst);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_mula(DisasContext *ctx, arg_mula *a)
 {
-    GET_GPR_R
-    tcg_gen_mulu2_tl(src1, src2, src1, src2);
-    tcg_gen_add_tl(dst, dst, src1);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_mulx_tl(ctx, a, tcg_gen_add_tl);
 }
 
 static bool trans_muls(DisasContext *ctx, arg_muls *a)
 {
-    GET_GPR_R
-    tcg_gen_mulu2_tl(src1, src2, src1, src2);
-    tcg_gen_sub_tl(dst, dst, src1);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_mulx_tl(ctx, a, tcg_gen_sub_tl);
 }
 
 static bool trans_mulah(DisasContext *ctx, arg_mulah *a)
 {
-    GET_GPR_R
-    gen_helper_mulah(dst, src1, src2, dst);
-    SET_GPR_R
-    FREE_GPR_R
+    TCGv d1;
+    GET_GPR_R(EXT_NONE);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    gen_helper_mulah(dst, src1, src2, d1);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_mulsh(DisasContext *ctx, arg_mulsh *a)
 {
-    GET_GPR_R
-    gen_helper_mulsh(dst, src1, src2, dst);
-    SET_GPR_R
-    FREE_GPR_R
+    TCGv d1;
+    GET_GPR_R(EXT_NONE);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    gen_helper_mulsh(dst, src1, src2, d1);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_ext(DisasContext *ctx, arg_ext *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
+    GET_GPR_R2(EXT_NONE);
     if (a->msb < a->lsb) {
         tcg_gen_movi_tl(dst, 0);
     } else {
-        tcg_gen_shli_tl(src1, src1, TARGET_LONG_BITS - 1 - a->msb);
-        tcg_gen_sari_tl(dst, src1, TARGET_LONG_BITS - 1 - a->msb + a->lsb);
+        tcg_gen_sextract_tl(dst, src1, a->lsb, a->msb - a->lsb + 1);
     }
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_extu(DisasContext *ctx, arg_extu *a)
 {
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
+    GET_GPR_R2(EXT_NONE);
     if (a->msb < a->lsb) {
         tcg_gen_movi_tl(dst, 0);
     } else {
-        tcg_gen_shli_tl(src1, src1, TARGET_LONG_BITS - 1 - a->msb);
-        tcg_gen_shri_tl(dst, src1, TARGET_LONG_BITS - 1 - a->msb + a->lsb);
+        tcg_gen_extract_tl(dst, src1, a->lsb, a->msb - a->lsb + 1);
     }
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    gen_set_gpr(ctx, a->rd, dst);
+    return true;
+}
+
+static bool gen_lrx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2;
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    GET_GPR_R(EXT_ZERO);
+
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_ld_tl(dst, t1, ctx->mem_idx, memop);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, t1);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_lrb(DisasContext *ctx, arg_lrb *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lrx(ctx, a, MO_SB);
 }
 
 static bool trans_lrh(DisasContext *ctx, arg_lrh *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lrx(ctx, a, MO_TESW);
 }
 
 static bool trans_lrw(DisasContext *ctx, arg_lrw *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lrx(ctx, a, MO_TESL);
 }
 
 static bool trans_lrbu(DisasContext *ctx, arg_lrbu *a)
 {
-    int memop = MO_UB;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lrx(ctx, a, MO_UB);
 }
 
 static bool trans_lrhu(DisasContext *ctx, arg_lrhu *a)
 {
-    int memop = MO_TEUW;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lrx(ctx, a, MO_TEUW);
 }
 
 static inline target_long sign_ext(int imm, int len)
@@ -333,339 +241,318 @@ static inline target_long sign_ext(int imm, int len)
     return (temp << width) >> width;
 }
 
+static bool gen_lxib(DisasContext *ctx, arg_r2_imm2_5 *a, MemOp memop)
+{
+    TCGv t1 = temp_new(ctx);
+    GET_GPR_R2(EXT_ZERO);
+
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_ld_tl(dst, t1, ctx->mem_idx, memop);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, t1);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
+    gen_set_gpr(ctx, a->rs1, t1);
+    return true;
+}
+
 static bool trans_lbib(DisasContext *ctx, arg_lbib *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxib(ctx, a, MO_SB);
 }
 
 static bool trans_lhib(DisasContext *ctx, arg_lhib *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxib(ctx, a, MO_TESW);
 }
 
 static bool trans_lwib(DisasContext *ctx, arg_lwib *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxib(ctx, a, MO_TESL);
 }
 
 static bool trans_lbuib(DisasContext *ctx, arg_lbuib *a)
 {
-    int memop = MO_UB;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxib(ctx, a, MO_UB);
 }
 
 static bool trans_lhuib(DisasContext *ctx, arg_lhuib *a)
 {
-    int memop = MO_TEUW;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    return gen_lxib(ctx, a, MO_TEUW);
+}
+
+static bool gen_lxia(DisasContext *ctx, arg_r2_imm2_5 *a, MemOp memop)
+{
+    TCGv t1 = temp_new(ctx);
+    GET_GPR_R2(EXT_ZERO);
+
     tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, src1);
+    }
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
 static bool trans_lbia(DisasContext *ctx, arg_lbia *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia(ctx, a, MO_SB);
 }
 
 static bool trans_lhia(DisasContext *ctx, arg_lhia *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia(ctx, a, MO_TESW);
 }
 
 static bool trans_lwia(DisasContext *ctx, arg_lwia *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia(ctx, a, MO_TESL);
 }
 
 static bool trans_lbuia(DisasContext *ctx, arg_lbuia *a)
 {
-    int memop = MO_UB;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia(ctx, a, MO_UB);
 }
 
 static bool trans_lhuia(DisasContext *ctx, arg_lhuia *a)
 {
-    int memop = MO_TEUW;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia(ctx, a, MO_TEUW);
 }
 
 static bool trans_lwd(DisasContext *ctx, arg_lwd *a)
 {
     uint8_t offset = a->imm2 << 3;
-    TCGv src1, dst1, dst2;
-    src1 = tcg_temp_new();
-    dst1 = tcg_temp_new();
-    dst2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    tcg_gen_addi_tl(src1, src1, offset);
-    tcg_gen_qemu_ld_tl(dst1, src1, ctx->mem_idx, MO_TESL);
-    tcg_gen_addi_tl(src1,src1, 4);
-    tcg_gen_qemu_ld_tl(dst2, src1, ctx->mem_idx, MO_TESL);
-    gen_set_gpr(a->rd1, dst1);
-    gen_set_gpr(a->rd2, dst2);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst1);
-    tcg_temp_free(dst2);
+    TCGv t1, src1, dst1, dst2;
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    dst1 = dest_gpr(ctx, a->rd1);
+    dst2 = dest_gpr(ctx, a->rd2);
+    t1 = temp_new(ctx);
+
+    tcg_gen_addi_tl(t1, src1, offset);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_ld_tl(dst1, t1, ctx->mem_idx, MO_TESL);
+    if (a->rd1) {
+        gen_load_internal(ctx, MO_TESL, dst1, t1);
+    }
+    tcg_gen_addi_tl(t1, t1, 4);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_ld_tl(dst2, t1, ctx->mem_idx, MO_TESL);
+    if (a->rd2) {
+        gen_load_internal(ctx, MO_TESL, dst2, t1);
+    }
+    gen_set_gpr(ctx, a->rd1, dst1);
+    gen_set_gpr(ctx, a->rd2, dst2);
+    return true;
+}
+
+static bool gen_srx(DisasContext *ctx, arg_srb *a, MemOp memop)
+{
+    TCGv src1, src2, t1, t2, d1;
+    d1 = get_gpr(ctx, a->rd, EXT_ZERO);
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    src2 = get_gpr(ctx, a->rs2, EXT_ZERO);
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, t1);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_srb(DisasContext *ctx, arg_srb *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_srx(ctx, a, MO_SB);
 }
 
 static bool trans_srh(DisasContext *ctx, arg_srh *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_srx(ctx, a, MO_TESW);
 }
 
 static bool trans_srw(DisasContext *ctx, arg_srw *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
+    return gen_srx(ctx, a, MO_TESL);
+}
+
+static bool gen_sxia(DisasContext *ctx, arg_sbia *a, MemOp memop)
+{
+    TCGv t1, d1, src1;
+    t1 = temp_new(ctx);
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    d1 = get_gpr(ctx, a->rd, EXT_ZERO);
+
+    tcg_gen_qemu_st_tl(d1, src1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, src1);
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
 static bool trans_sbia(DisasContext *ctx, arg_sbia *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R2
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_RS1
-    FREE_GPR_R2
-    return true;
+    return gen_sxia(ctx, a, MO_SB);
 }
 
 static bool trans_shia(DisasContext *ctx, arg_shia *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R2
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_RS1
-    FREE_GPR_R2
-    return true;
+    return gen_sxia(ctx, a, MO_TESW);
 }
 
 static bool trans_swia(DisasContext *ctx, arg_swia *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R2
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_RS1
-    FREE_GPR_R2
+    return gen_sxia(ctx, a, MO_TESL);
+}
+
+static bool gen_sxib(DisasContext *ctx, arg_sbib *a, MemOp memop)
+{
+    TCGv t1, src1, d1;
+    t1 = temp_new(ctx);
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    d1 = get_gpr(ctx, a->rd, EXT_ZERO);
+
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, t1);
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
 static bool trans_sbib(DisasContext *ctx, arg_sbib *a)
 {
-    int memop = MO_SB;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_RS1
-    FREE_GPR_R2
-    return true;
+    return gen_sxib(ctx, a, MO_SB);
 }
 
 static bool trans_shib(DisasContext *ctx, arg_shib *a)
 {
-    int memop = MO_TESW;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_RS1
-    FREE_GPR_R2
-    return true;
+    return gen_sxib(ctx, a, MO_TESW);
 }
 
 static bool trans_swib(DisasContext *ctx, arg_swib *a)
 {
-    int memop = MO_TESL;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_RS1
-    FREE_GPR_R2
-    return true;
+    return gen_sxib(ctx, a, MO_TESL);
 }
 
 static bool trans_swd(DisasContext *ctx, arg_swd *a)
 {
     uint8_t offset = a->imm2 << 3;
-    TCGv src1, dst1, dst2;
-    src1 = tcg_temp_new();
-    dst1 = tcg_temp_new();
-    dst2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst1, a->rd1);
-    gen_get_gpr(dst2, a->rd2);
-    tcg_gen_addi_tl(src1, src1, offset);
-    tcg_gen_qemu_st_tl(dst1, src1, ctx->mem_idx, MO_TESL);
-    tcg_gen_addi_tl(src1, src1, 4);
-    tcg_gen_qemu_st_tl(dst2, src1, ctx->mem_idx, MO_TESL);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst1);
-    tcg_temp_free(dst2);
+    TCGv t1, src1, d1, d2;
+    t1 = temp_new(ctx);
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    d1 = get_gpr(ctx, a->rd1, EXT_NONE);
+    d2 = get_gpr(ctx, a->rd2, EXT_NONE);
+
+    tcg_gen_addi_tl(t1, src1, offset);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, MO_TESL);
+    gen_store_internal(ctx, MO_TESL, d1, t1);
+    tcg_gen_addi_tl(t1, t1, 4);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_st_tl(d2, t1, ctx->mem_idx, MO_TESL);
+    gen_store_internal(ctx, MO_TESL, d2, t1);
     return true;
+}
+
+static void gen_flrx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2, src1, src2, data;
+    if (ctx->mstatus_fs == 0) {
+        gen_exception_illegal(ctx);
+    }
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    src2 = get_gpr(ctx, a->rs2, EXT_ZERO);
+    data = temp_new(ctx);
+
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], t1, ctx->mem_idx, memop);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rd]);
+    gen_load_internal(ctx, memop, data, t1);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
 }
 
 static bool trans_flrw(DisasContext *ctx, arg_flrw *a)
 {
-    TCGv src1, src2;
-    TCGv_i64 one;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    one = tcg_const_i64(0xffffffff);
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEUL);
-    tcg_gen_deposit_i64(cpu_fpr[a->rd], cpu_fpr[a->rd], one, 32, 32);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    tcg_temp_free_i64(one);
+    gen_flrx(ctx, a, MO_TEUL);
+    gen_nanbox_s(cpu_fpr[a->rd], cpu_fpr[a->rd]);
     mark_fs_dirty(ctx);
     return true;
 }
 
 static bool trans_flrd(DisasContext *ctx, arg_flrd *a)
 {
-    TCGv src1, src2;
+    gen_flrx(ctx, a, MO_TEQ);
+    mark_fs_dirty(ctx);
+    return true;
+}
+
+static bool gen_fsrx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2, src1, src2, data;
     if (ctx->mstatus_fs == 0) {
         gen_exception_illegal(ctx);
     }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
+    src2 = get_gpr(ctx, a->rs2, EXT_ZERO);
+    data = temp_new(ctx);
 
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEQ);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    mark_fs_dirty(ctx);
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    if (ctx->xl == MXL_RV32) {
+        tcg_gen_andi_tl(t1, t1, UINT32_MAX);
+    }
+    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], t1, ctx->mem_idx, memop);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rd]);
+    gen_store_internal(ctx, memop, data, t1);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_fsrw(DisasContext *ctx, arg_fsrw *a)
 {
-    TCGv src1, src2;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEUL);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    return true;
+    return gen_fsrx(ctx, a, MO_TEUL);
 }
 
 static bool trans_fsrd(DisasContext *ctx, arg_fsrd *a)
 {
-    TCGv src1, src2;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEQ);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    return true;
+    return gen_fsrx(ctx, a, MO_TEQ);
 }
 
 static bool trans_ignore(DisasContext *ctx, arg_ignore *a)
@@ -679,355 +566,293 @@ static bool trans_ignore(DisasContext *ctx, arg_ignore *a)
 static bool trans_srriw(DisasContext *ctx, arg_srriw *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, dst;
-    TCGv imm = tcg_temp_new();
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-    tcg_gen_movi_tl(imm, a->imm5);
-    gen_helper_srriw(dst, src1, imm);
-    SET_GPR_R
-    tcg_temp_free(imm);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    GET_GPR_R2(EXT_NONE);
+    gen_helper_srriw(dst, src1, tcg_constant_tl(a->imm5));
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_revw(DisasContext *ctx, arg_revw *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, dst;
-    src1 = tcg_temp_new();
-    dst = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst, a->rd);
-
+    GET_GPR_R2(EXT_NONE);
     tcg_gen_bswap32_tl(dst, src1, TCG_BSWAP_OS);
-    SET_GPR_R
-    tcg_temp_free(src1);
-    tcg_temp_free(dst);
+    gen_set_gpr(ctx, a->rd, dst);
     return true;
 }
 
 static bool trans_mulaw(DisasContext *ctx, arg_mulaw *a)
 {
     REQUIRE_64BIT(ctx);
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src1, src1);
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_ext32u_tl(dst, dst);
-    tcg_gen_muls2_tl(src1, src2, src1, src2);
-    tcg_gen_ext32u_tl(src1, src1);
-    tcg_gen_add_tl(dst, dst, src1);
-    tcg_gen_ext32s_tl(dst, dst);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    ctx->ol = MXL_RV32;
+    return gen_mulx_tl(ctx, a, tcg_gen_add_tl);
 }
 
 static bool trans_mulsw(DisasContext *ctx, arg_mulsw *a)
 {
     REQUIRE_64BIT(ctx);
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src1, src1);
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_ext32u_tl(dst, dst);
-    tcg_gen_muls2_tl(src1, src2, src1, src2);
-    tcg_gen_ext32u_tl(src1, src1);
-    tcg_gen_sub_tl(dst, dst, src1);
-    tcg_gen_ext32s_tl(dst, dst);
-    SET_GPR_R
-    FREE_GPR_R
+    ctx->ol = MXL_RV32;
+    return gen_mulx_tl(ctx, a, tcg_gen_sub_tl);
+}
+
+static bool gen_lr64(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2;
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    GET_GPR_R(EXT_NONE);
+
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_ld_tl(dst, t1, ctx->mem_idx, memop);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, t1);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
-static bool trans_lrd(DisasContext *ctx, arg_lrd *a)
+static bool trans_lrd(DisasContext *ctx , arg_lrd *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEQ;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lr64(ctx, a, MO_TEQ);
 }
 
 static bool trans_lrwu(DisasContext *ctx, arg_lrwu *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEUL;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
+    return gen_lr64(ctx, a, MO_TEUL);
+}
+
+static bool gen_lurx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2;
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    GET_GPR_R(EXT_NONE);
+
+    tcg_gen_ext32u_tl(t2, src2);
+    tcg_gen_shli_tl(t2, t2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_ld_tl(dst, t1, ctx->mem_idx, memop);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, t1);
+    }
+    gen_set_gpr(ctx, a->rd, dst);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_lurb(DisasContext *ctx, arg_lurb *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_SB;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_SB);
 }
 
 static bool trans_lurh(DisasContext *ctx, arg_lurh *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TESW;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_TESW);
 }
 
 static bool trans_lurw(DisasContext *ctx, arg_lurw *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TESL;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_TESL);
 }
 
 static bool trans_lurd(DisasContext *ctx, arg_lurd *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEQ;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_TEQ);
 }
 
 static bool trans_lurbu(DisasContext *ctx, arg_lurbu *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_UB;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_UB);
 }
 
 static bool trans_lurhu(DisasContext *ctx, arg_lurhu *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEUW;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
-    return true;
+    return gen_lurx(ctx, a, MO_TEUW);
 }
 
 static bool trans_lurwu(DisasContext *ctx, arg_lurwu *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEUL;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
+    return gen_lurx(ctx, a, MO_TEUL);
+}
+
+static bool gen_lxia64(DisasContext *ctx, arg_r2_imm2_5 *a, MemOp memop)
+{
+    TCGv t1 = temp_new(ctx);
+    GET_GPR_R2(EXT_NONE);
+
     tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R
-    FREE_GPR_R
+    gen_set_gpr(ctx, a->rd, dst);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, src1);
+    }
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
+
 static bool trans_ldia(DisasContext *ctx, arg_ldia *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEQ;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
+    return gen_lxia64(ctx, a, MO_TEQ);
+}
+
+static bool gen_lxib64(DisasContext *ctx, arg_r2_imm2_5 *a, MemOp memop)
+{
+    TCGv t1 = temp_new(ctx);
+    GET_GPR_R2(EXT_NONE);
+
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    tcg_gen_qemu_ld_tl(dst, t1, ctx->mem_idx, memop);
+    gen_set_gpr(ctx, a->rd, dst);
+    if (a->rd) {
+        gen_load_internal(ctx, memop, dst, t1);
+    }
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
 static bool trans_ldib(DisasContext *ctx, arg_ldib *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEQ;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxib64(ctx, a, MO_TEQ);
 }
 
 static bool trans_lwuia(DisasContext *ctx, arg_lwuia *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEUL;
-    GET_GPR_R2
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_R2
-    FREE_GPR_R2
-    return true;
+    return gen_lxia64(ctx, a, MO_TEUL);
 }
 
 static bool trans_lwuib(DisasContext *ctx, arg_lwuib *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEUL;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_ld_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_R2
-    FREE_GPR_R2
+    return gen_lxib64(ctx, a, MO_TEUL);
+}
+
+static bool gen_lxd64(DisasContext *ctx, arg_rd_imm2 *a, MemOp memop,
+                      uint8_t offset)
+{
+    TCGv t1, src1, dst1, dst2;
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    dst1 = dest_gpr(ctx, a->rd1);
+    dst2 = dest_gpr(ctx, a->rd2);
+    t1 = temp_new(ctx);
+    tcg_gen_addi_tl(t1, src1, offset);
+    tcg_gen_qemu_ld_tl(dst1, t1, ctx->mem_idx, memop);
+    gen_set_gpr(ctx, a->rd1, dst1);
+    if (a->rd1) {
+        gen_load_internal(ctx, memop, dst1, t1);
+    }
+    tcg_gen_addi_tl(t1, t1, memop == MO_TEUL ? 4 : 8);
+    tcg_gen_qemu_ld_tl(dst2, t1, ctx->mem_idx, memop);
+    gen_set_gpr(ctx, a->rd2, dst2);
+    if (a->rd2) {
+        gen_load_internal(ctx, memop, dst2, t1);
+    }
     return true;
 }
 
 static bool trans_lwud(DisasContext *ctx, arg_lwud *a)
 {
     REQUIRE_64BIT(ctx);
-    uint8_t offset = a->imm2 << 3;
-    TCGv src1, dst1, dst2;
-    src1 = tcg_temp_new();
-    dst1 = tcg_temp_new();
-    dst2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    tcg_gen_addi_tl(src1, src1, offset);
-    tcg_gen_qemu_ld_tl(dst1, src1, ctx->mem_idx, MO_TEUL);
-    tcg_gen_addi_tl(src1, src1, 4);
-    tcg_gen_qemu_ld_tl(dst2, src1, ctx->mem_idx, MO_TEUL);
-    gen_set_gpr(a->rd1, dst1);
-    gen_set_gpr(a->rd2, dst2);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst1);
-    tcg_temp_free(dst2);
-    return true;
+    return gen_lxd64(ctx, a, MO_TEUL, a->imm2 << 3);
 }
 
 static bool trans_ldd(DisasContext *ctx, arg_ldd *a)
 {
     REQUIRE_64BIT(ctx);
-    uint8_t offset = a->imm2 << 4;
-    TCGv src1, dst1, dst2;
-    src1 = tcg_temp_new();
-    dst1 = tcg_temp_new();
-    dst2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    tcg_gen_addi_tl(src1, src1, offset);
-    tcg_gen_qemu_ld_tl(dst1, src1, ctx->mem_idx, MO_TEQ);
-    tcg_gen_addi_tl(src1, src1, 8);
-    tcg_gen_qemu_ld_tl(dst2, src1, ctx->mem_idx, MO_TEQ);
-    gen_set_gpr(a->rd1, dst1);
-    gen_set_gpr(a->rd2, dst2);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst1);
-    tcg_temp_free(dst2);
-    return true;
+    return gen_lxd64(ctx, a, MO_TEQ, a->imm2 << 4);
 }
 
 static bool trans_srd(DisasContext *ctx, arg_srd *a)
 {
     REQUIRE_64BIT(ctx);
+    TCGv t1, t2, src1, src2, d1;
     int memop = MO_TEQ;
-    GET_GPR_R
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+    tcg_gen_shli_tl(t2, src2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, t1);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
+    return true;
+}
+
+static bool gen_surx64(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    REQUIRE_64BIT(ctx);
+    TCGv t1, t2, src1, src2, d1;
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    t1 = tcg_temp_new();
+    t2 = tcg_temp_new();
+
+    tcg_gen_ext32u_tl(t2, src2);
+    tcg_gen_shli_tl(t2, t2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, t1);
+    tcg_temp_free(t1);
+    tcg_temp_free(t2);
     return true;
 }
 
 static bool trans_surb(DisasContext *ctx, arg_surb *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_SB;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_surx64(ctx, a, MO_SB);
 }
 
 static bool trans_surh(DisasContext *ctx, arg_surh *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TESW;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_surx64(ctx, a, MO_TESW);
 }
 
 static bool trans_surw(DisasContext *ctx, arg_surw *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TESL;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_surx64(ctx, a, MO_TESL);
 }
 
 static bool trans_surd(DisasContext *ctx, arg_surd *a)
 {
     REQUIRE_64BIT(ctx);
-    int memop = MO_TEQ;
-    GET_GPR_R
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    FREE_GPR_R
-    return true;
+    return gen_surx64(ctx, a, MO_TEQ);
 }
 
 static bool trans_sdia(DisasContext *ctx, arg_sdia *a)
 {
     REQUIRE_64BIT(ctx);
     int memop = MO_TEQ;
-    GET_GPR_R2
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    SET_GPR_RS1
-    FREE_GPR_R2
+    TCGv t1, src1, d1;
+    t1 = temp_new(ctx);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+
+    tcg_gen_qemu_st_tl(d1, src1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, src1);
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
@@ -1035,11 +860,15 @@ static bool trans_sdib(DisasContext *ctx, arg_sdib *a)
 {
     REQUIRE_64BIT(ctx);
     int memop = MO_TEQ;
-    GET_GPR_R2
-    tcg_gen_addi_tl(src1, src1, sign_ext(a->imm5, 5) << a->imm2);
-    tcg_gen_qemu_st_tl(dst, src1, ctx->mem_idx, memop);
-    SET_GPR_RS1
-    FREE_GPR_R2
+    TCGv t1, src1, d1;
+    t1 = temp_new(ctx);
+    d1 = get_gpr(ctx, a->rd, EXT_NONE);
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+
+    tcg_gen_addi_tl(t1, src1, sign_ext(a->imm5, 5) << a->imm2);
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, d1, t1);
+    gen_set_gpr(ctx, a->rs1, t1);
     return true;
 }
 
@@ -1047,43 +876,48 @@ static bool trans_sdd(DisasContext *ctx, arg_sdd *a)
 {
     REQUIRE_64BIT(ctx);
     uint8_t offset = a->imm2 << 4;
-    TCGv src1, dst1, dst2;
-    src1 = tcg_temp_new();
-    dst1 = tcg_temp_new();
-    dst2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(dst1, a->rd1);
-    gen_get_gpr(dst2, a->rd2);
-    tcg_gen_addi_tl(src1, src1, offset);
-    tcg_gen_qemu_st_tl(dst1, src1, ctx->mem_idx, MO_TEQ);
-    tcg_gen_addi_tl(src1, src1, 8);
-    tcg_gen_qemu_st_tl(dst2, src1, ctx->mem_idx, MO_TEQ);
-    tcg_temp_free(src1);
-    tcg_temp_free(dst1);
-    tcg_temp_free(dst2);
+    TCGv t1, src1, d1, d2;
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    d1 = get_gpr(ctx, a->rd1, EXT_NONE);
+    d2 = get_gpr(ctx, a->rd2, EXT_NONE);
+    t1 = temp_new(ctx);
+
+    tcg_gen_addi_tl(t1, src1, offset);
+    tcg_gen_qemu_st_tl(d1, t1, ctx->mem_idx, MO_TEQ);
+    gen_store_internal(ctx, MO_TEQ, d1, t1);
+    tcg_gen_addi_tl(t1, t1, 8);
+    tcg_gen_qemu_st_tl(d2, t1, ctx->mem_idx, MO_TEQ);
+    gen_store_internal(ctx, MO_TEQ, d2, t1);
     return true;
+}
+
+static void gen_flurx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2, src1, src2, data;
+    if (ctx->mstatus_fs == 0) {
+        gen_exception_illegal(ctx);
+    }
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    t1 = temp_new(ctx);
+    t2 = temp_new(ctx);
+    data = tcg_temp_new();
+
+    tcg_gen_ext32u_tl(t2, src2);
+    tcg_gen_shli_tl(t2, t2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], t1, ctx->mem_idx, memop);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rd]);
+    gen_load_internal(ctx, memop, data, t1);
+
+    tcg_temp_free(data);
 }
 
 static bool trans_flurw(DisasContext *ctx, arg_flurw *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, src2;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEUL);
+    gen_flurx(ctx, a, MO_TEUL);
     gen_nanbox_s(cpu_fpr[a->rd], cpu_fpr[a->rd]);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
     mark_fs_dirty(ctx);
     return true;
 }
@@ -1091,22 +925,31 @@ static bool trans_flurw(DisasContext *ctx, arg_flurw *a)
 static bool trans_flurd(DisasContext *ctx, arg_flurd *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, src2;
+    gen_flurx(ctx, a, MO_TEQ);
+    mark_fs_dirty(ctx);
+    return true;
+}
+
+static bool gen_fsurx(DisasContext *ctx, arg_r_imm2 *a, MemOp memop)
+{
+    TCGv t1, t2, src1, src2, data;
     if (ctx->mstatus_fs == 0) {
         gen_exception_illegal(ctx);
     }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
+    src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    t1 = temp_new(ctx);
+    t2 = temp_new(ctx);
+    data = tcg_temp_new();
 
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEQ);
+    tcg_gen_ext32u_tl(t2, src2);
+    tcg_gen_shli_tl(t2, t2, a->imm2);
+    tcg_gen_add_tl(t1, src1, t2);
+    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], t1, ctx->mem_idx, memop);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rd]);
+    gen_store_internal(ctx, memop, data, t1);
 
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
+    tcg_temp_free(data);
     mark_fs_dirty(ctx);
     return true;
 }
@@ -1114,59 +957,28 @@ static bool trans_flurd(DisasContext *ctx, arg_flurd *a)
 static bool trans_fsurw(DisasContext *ctx, arg_fsurw *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, src2;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEUL);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    return true;
+    return gen_fsurx(ctx, a, MO_TEUL);
 }
 
 static bool trans_fsurd(DisasContext *ctx, arg_fsurd *a)
 {
     REQUIRE_64BIT(ctx);
-    TCGv src1, src2;
-    if (ctx->mstatus_fs == 0) {
-        gen_exception_illegal(ctx);
-    }
-    src1 = tcg_temp_new();
-    src2 = tcg_temp_new();
-    gen_get_gpr(src1, a->rs1);
-    gen_get_gpr(src2, a->rs2);
-
-    tcg_gen_ext32u_tl(src2, src2);
-    tcg_gen_shli_tl(src2, src2, a->imm2);
-    tcg_gen_add_tl(src1, src1, src2);
-    tcg_gen_qemu_st_i64(cpu_fpr[a->rd], src1, ctx->mem_idx, MO_TEQ);
-
-    tcg_temp_free(src1);
-    tcg_temp_free(src2);
-    return true;
+    return gen_fsurx(ctx, a, MO_TEQ);
 }
 
 static bool trans_flh(DisasContext *ctx, arg_flh *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-    tcg_gen_addi_tl(t0, t0, a->imm);
+    TCGv t1, data;
 
-    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], t0, ctx->mem_idx, MO_TEUW);
+    data = temp_new(ctx);
+    t1 = get_address(ctx, a->rs1, a->imm);
+
+    tcg_gen_qemu_ld_i64(cpu_fpr[a->rd], t1, ctx->mem_idx, MO_TEUW);
     gen_nanbox_h(cpu_fpr[a->rd], cpu_fpr[a->rd]);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rd]);
+    gen_load_internal(ctx, MO_TEUW, data, t1);
 
-    tcg_temp_free(t0);
     mark_fs_dirty(ctx);
     return true;
 }
@@ -1174,15 +986,15 @@ static bool trans_flh(DisasContext *ctx, arg_flh *a)
 static bool trans_fsh(DisasContext *ctx, arg_fsh *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-    tcg_gen_addi_tl(t0, t0, a->imm);
+    TCGv t1, data;
+    data = temp_new(ctx);
 
-    tcg_gen_qemu_st_i64(cpu_fpr[a->rs2], t0, ctx->mem_idx, MO_TEUW);
+    t1 = get_address(ctx, a->rs1, a->imm);
+    tcg_gen_qemu_st_i64(cpu_fpr[a->rs2], t1, ctx->mem_idx, MO_TEUW);
+    tcg_gen_trunc_i64_tl(data, cpu_fpr[a->rs2]);
+    gen_store_internal(ctx, MO_TEUW, data, t1);
 
-    tcg_temp_free(t0);
     mark_fs_dirty(ctx);
     return true;
 }
@@ -1190,7 +1002,6 @@ static bool trans_fsh(DisasContext *ctx, arg_fsh *a)
 static bool trans_fmadd_h(DisasContext *ctx, arg_fmadd_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fmadd_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
@@ -1203,7 +1014,6 @@ static bool trans_fmadd_h(DisasContext *ctx, arg_fmadd_h *a)
 static bool trans_fmsub_h(DisasContext *ctx, arg_fmsub_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fmsub_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
@@ -1216,7 +1026,6 @@ static bool trans_fmsub_h(DisasContext *ctx, arg_fmsub_h *a)
 static bool trans_fnmsub_h(DisasContext *ctx, arg_fnmsub_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fnmsub_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
@@ -1229,7 +1038,6 @@ static bool trans_fnmsub_h(DisasContext *ctx, arg_fnmsub_h *a)
 static bool trans_fnmadd_h(DisasContext *ctx, arg_fnmadd_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fnmadd_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
@@ -1242,7 +1050,6 @@ static bool trans_fnmadd_h(DisasContext *ctx, arg_fnmadd_h *a)
 static bool trans_fadd_h(DisasContext *ctx, arg_fadd_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fadd_h(cpu_fpr[a->rd], cpu_env,
@@ -1255,7 +1062,6 @@ static bool trans_fadd_h(DisasContext *ctx, arg_fadd_h *a)
 static bool trans_fsub_h(DisasContext *ctx, arg_fsub_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fsub_h(cpu_fpr[a->rd], cpu_env,
@@ -1268,7 +1074,6 @@ static bool trans_fsub_h(DisasContext *ctx, arg_fsub_h *a)
 static bool trans_fmul_h(DisasContext *ctx, arg_fmul_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fmul_h(cpu_fpr[a->rd], cpu_env,
@@ -1281,7 +1086,6 @@ static bool trans_fmul_h(DisasContext *ctx, arg_fmul_h *a)
 static bool trans_fdiv_h(DisasContext *ctx, arg_fdiv_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fdiv_h(cpu_fpr[a->rd], cpu_env,
@@ -1294,7 +1098,6 @@ static bool trans_fdiv_h(DisasContext *ctx, arg_fdiv_h *a)
 static bool trans_fsqrt_h(DisasContext *ctx, arg_fsqrt_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fsqrt_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1]);
@@ -1306,15 +1109,13 @@ static bool trans_fsqrt_h(DisasContext *ctx, arg_fsqrt_h *a)
 static bool trans_fmv_x_h(DisasContext *ctx, arg_fmv_x_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
     TCGv_i64 t_64 = tcg_temp_new_i64();
-    TCGv t = tcg_temp_new();
+    TCGv t = temp_new(ctx);
 
     tcg_gen_ext16s_i64(t_64, cpu_fpr[a->rs1]);
     tcg_gen_trunc_i64_tl(t, t_64);
-    gen_set_gpr(a->rd, t);
 
-    tcg_temp_free(t);
+    gen_set_gpr(ctx, a->rd, t);
     tcg_temp_free_i64(t_64);
     return true;
 }
@@ -1322,31 +1123,36 @@ static bool trans_fmv_x_h(DisasContext *ctx, arg_fmv_x_h *a)
 static bool trans_fmv_h_x(DisasContext *ctx, arg_fmv_h_x *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
+    TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
 
-    tcg_gen_extu_tl_i64(cpu_fpr[a->rd], t0);
+    tcg_gen_extu_tl_i64(cpu_fpr[a->rd], src1);
     gen_nanbox_h(cpu_fpr[a->rd], cpu_fpr[a->rd]);
 
     mark_fs_dirty(ctx);
-    tcg_temp_free(t0);
     return true;
 }
 
 static bool trans_fsgnj_h(DisasContext *ctx, arg_fsgnj_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     if (a->rs1 == a->rs2) { /* FMOV */
-        gen_check_nanbox_h(cpu_fpr[a->rd], cpu_fpr[a->rs1]);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(cpu_fpr[a->rd], cpu_fpr[a->rs1]);
+        } else {
+            gen_check_nanbox_h(cpu_fpr[a->rd], cpu_fpr[a->rs1]);
+        }
     } else { /* FSGNJ */
-	    TCGv_i64 rs1 = tcg_temp_new_i64();
+        TCGv_i64 rs1 = tcg_temp_new_i64();
         TCGv_i64 rs2 = tcg_temp_new_i64();
 
-        gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
-        gen_check_nanbox_h(rs2, cpu_fpr[a->rs2]);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(rs1, cpu_fpr[a->rs1]);
+            gen_check_nanbox_bh(rs2, cpu_fpr[a->rs2]);
+        } else {
+            gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
+            gen_check_nanbox_h(rs2, cpu_fpr[a->rs2]);
+        }
 
         /* This formulation retains the nanboxing of rs2. */
         tcg_gen_deposit_i64(cpu_fpr[a->rd], rs2, rs1, 0, 15);
@@ -1362,16 +1168,23 @@ static bool trans_fsgnjn_h(DisasContext *ctx, arg_fsgnjn_h *a)
 {
     TCGv_i64 rs1, rs2, mask;
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     rs1 = tcg_temp_new_i64();
-    gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
+    if (ctx->bf16) {
+        gen_check_nanbox_bh(rs1, cpu_fpr[a->rs1]);
+    } else {
+        gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
+    }
 
     if (a->rs1 == a->rs2) { /* FNEG */
         tcg_gen_xori_i64(cpu_fpr[a->rd], rs1, MAKE_64BIT_MASK(15, 1));
     } else {
         rs2 = tcg_temp_new_i64();
-        gen_check_nanbox_h(rs2, cpu_fpr[a->rs2]);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(rs2, cpu_fpr[a->rs2]);
+        } else {
+            gen_check_nanbox_h(rs2, cpu_fpr[a->rs2]);
+        }
 
         /*
          * Replace bit 15 in rs1 with inverse in rs2.
@@ -1395,16 +1208,23 @@ static bool trans_fsgnjx_h(DisasContext *ctx, arg_fsgnjx_h *a)
 {
     TCGv_i64 rs1, rs2;
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     rs1 = tcg_temp_new_i64();
-    gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
+    if (ctx->bf16) {
+        gen_check_nanbox_bh(rs1, cpu_fpr[a->rs1]);
+    } else {
+        gen_check_nanbox_h(rs1, cpu_fpr[a->rs1]);
+    }
 
     if (a->rs1 == a->rs2) { /* FABS */
         tcg_gen_andi_i64(cpu_fpr[a->rd], rs1, ~MAKE_64BIT_MASK(15, 1));
     } else {
         rs2 = tcg_temp_new_i64();
-        gen_check_nanbox_s(rs2, cpu_fpr[a->rs2]);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(rs2, cpu_fpr[a->rs2]);
+        } else {
+            gen_check_nanbox_h(rs2, cpu_fpr[a->rs2]);
+        }
 
         /*
          * Xor bit 15 in rs1 with that in rs2.
@@ -1424,7 +1244,6 @@ static bool trans_fsgnjx_h(DisasContext *ctx, arg_fsgnjx_h *a)
 static bool trans_fmin_h(DisasContext *ctx, arg_fmin_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_helper_fmin_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
                       cpu_fpr[a->rs2]);
@@ -1436,7 +1255,6 @@ static bool trans_fmin_h(DisasContext *ctx, arg_fmin_h *a)
 static bool trans_fmax_h(DisasContext *ctx, arg_fmax_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_helper_fmax_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1],
                       cpu_fpr[a->rs2]);
@@ -1445,181 +1263,120 @@ static bool trans_fmax_h(DisasContext *ctx, arg_fmax_h *a)
     return true;
 }
 
-static bool trans_fcvt_w_h(DisasContext *ctx, arg_fcvt_w_h *a)
+static bool gen_fcvt_x_h(DisasContext *ctx, arg_r2_rm *a,
+                         void (*func)(TCGv, TCGv_env, TCGv_i64))
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
+    TCGv dst1;
+    dst1 = dest_gpr(ctx, a->rd);
 
-    TCGv t0 = tcg_temp_new();
     gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_w_h(t0, cpu_env, cpu_fpr[a->rs1]);
-    gen_set_gpr(a->rd, t0);
-    tcg_temp_free(t0);
-
+    func(dst1, cpu_env, cpu_fpr[a->rs1]);
+    gen_set_gpr(ctx, a->rd, dst1);
     return true;
+}
+
+static bool trans_fcvt_w_h(DisasContext *ctx, arg_fcvt_w_h *a)
+{
+    return gen_fcvt_x_h(ctx, a, gen_helper_fcvt_w_h);
 }
 
 static bool trans_fcvt_wu_h(DisasContext *ctx, arg_fcvt_wu_h *a)
 {
+    return gen_fcvt_x_h(ctx, a, gen_helper_fcvt_wu_h);
+}
+
+static bool gen_cmp_h(DisasContext *ctx, arg_r *a,
+                      void (*func)(TCGv, TCGv_env, TCGv_i64, TCGv_i64))
+{
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
+    TCGv dst1;
+    dst1 = dest_gpr(ctx, a->rd);
 
-    TCGv t0 = tcg_temp_new();
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_wu_h(t0, cpu_env, cpu_fpr[a->rs1]);
-    gen_set_gpr(a->rd, t0);
-    tcg_temp_free(t0);
-
+    func(dst1, cpu_env, cpu_fpr[a->rs1], cpu_fpr[a->rs2]);
+    gen_set_gpr(ctx, a->rd, dst1);
     return true;
 }
 
 static bool trans_feq_h(DisasContext *ctx, arg_feq_h *a)
 {
-    REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-    TCGv t0 = tcg_temp_new();
-    gen_helper_feq_h(t0, cpu_env, cpu_fpr[a->rs1], cpu_fpr[a->rs2]);
-    gen_set_gpr(a->rd, t0);
-    tcg_temp_free(t0);
-    return true;
+    return gen_cmp_h(ctx, a, gen_helper_feq_h);
 }
 
 static bool trans_flt_h(DisasContext *ctx, arg_flt_h *a)
 {
-    REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_helper_flt_h(t0, cpu_env, cpu_fpr[a->rs1], cpu_fpr[a->rs2]);
-    gen_set_gpr(a->rd, t0);
-    tcg_temp_free(t0);
-
-    return true;
+    return gen_cmp_h(ctx, a, gen_helper_flt_h);
 }
 
 static bool trans_fle_h(DisasContext *ctx, arg_fle_h *a)
 {
-    REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_helper_fle_h(t0, cpu_env, cpu_fpr[a->rs1], cpu_fpr[a->rs2]);
-    gen_set_gpr(a->rd, t0);
-
-    tcg_temp_free(t0);
-    return true;
+    return gen_cmp_h(ctx, a, gen_helper_fle_h);
 }
 
 static bool trans_fclass_h(DisasContext *ctx, arg_fclass_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-    TCGv t0 = tcg_temp_new();
+    TCGv t0 = temp_new(ctx);
 
-    gen_helper_fclass_h(t0, cpu_fpr[a->rs1]);
-    gen_set_gpr(a->rd, t0);
+    if (ctx->bf16) {
+        gen_helper_fclass_bh(t0, cpu_fpr[a->rs1]);
+    } else {
+        gen_helper_fclass_h(t0, cpu_fpr[a->rs1]);
+    }
+    gen_set_gpr(ctx, a->rd, t0);
+    return true;
+}
 
-    tcg_temp_free(t0);
+static bool gen_fcvt_h_x(DisasContext *ctx, arg_r2_rm *a,
+                         void (*func)(TCGv_i64, TCGv_env, TCGv))
+{
+    REQUIRE_FPU;
+    TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+
+    gen_set_rm(ctx, a->rm);
+    func(cpu_fpr[a->rd], cpu_env, src1);
+    mark_fs_dirty(ctx);
     return true;
 }
 
 static bool trans_fcvt_h_w(DisasContext *ctx, arg_fcvt_h_w *a)
 {
-    REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_h_w(cpu_fpr[a->rd], cpu_env, t0);
-
-    mark_fs_dirty(ctx);
-    tcg_temp_free(t0);
-
-    return true;
+    return gen_fcvt_h_x(ctx, a, gen_helper_fcvt_h_w);
 }
 
 static bool trans_fcvt_h_wu(DisasContext *ctx, arg_fcvt_h_wu *a)
 {
-    REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_h_wu(cpu_fpr[a->rd], cpu_env, t0);
-
-    mark_fs_dirty(ctx);
-    tcg_temp_free(t0);
-    return true;
+    return gen_fcvt_h_x(ctx, a, gen_helper_fcvt_h_wu);
 }
 
 static bool trans_fcvt_l_h(DisasContext *ctx, arg_fcvt_l_h *a)
 {
-    REQUIRE_FPU;
     REQUIRE_64BIT(ctx);
 
-    TCGv t0 = tcg_temp_new();
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_l_h(t0, cpu_env, cpu_fpr[a->rs1]);
-    gen_set_gpr(a->rd, t0);
-
-    tcg_temp_free(t0);
-    return true;
+    return gen_fcvt_x_h(ctx, a, gen_helper_fcvt_l_h);
 }
 
 static bool trans_fcvt_lu_h(DisasContext *ctx, arg_fcvt_lu_h *a)
 {
-    REQUIRE_FPU;
     REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_lu_h(t0, cpu_env, cpu_fpr[a->rs1]);
-    gen_set_gpr(a->rd, t0);
-
-    tcg_temp_free(t0);
-    return true;
+    return gen_fcvt_x_h(ctx, a, gen_helper_fcvt_lu_h);
 }
 
 static bool trans_fcvt_h_l(DisasContext *ctx, arg_fcvt_h_l *a)
 {
-    REQUIRE_FPU;
     REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_h_l(cpu_fpr[a->rd], cpu_env, t0);
-
-    mark_fs_dirty(ctx);
-    tcg_temp_free(t0);
-    return true;
+    return gen_fcvt_h_x(ctx, a, gen_helper_fcvt_h_l);
 }
 
 static bool trans_fcvt_h_lu(DisasContext *ctx, arg_fcvt_h_lu *a)
 {
-    REQUIRE_FPU;
     REQUIRE_64BIT(ctx);
-
-    TCGv t0 = tcg_temp_new();
-    gen_get_gpr(t0, a->rs1);
-
-    gen_set_rm(ctx, a->rm);
-    gen_helper_fcvt_h_lu(cpu_fpr[a->rd], cpu_env, t0);
-
-    mark_fs_dirty(ctx);
-    tcg_temp_free(t0);
-    return true;
+    return gen_fcvt_h_x(ctx, a, gen_helper_fcvt_h_lu);
 }
 
 static bool trans_fcvt_s_h(DisasContext *ctx, arg_fcvt_s_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fcvt_s_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1]);
@@ -1631,7 +1388,6 @@ static bool trans_fcvt_s_h(DisasContext *ctx, arg_fcvt_s_h *a)
 static bool trans_fcvt_h_s(DisasContext *ctx, arg_fcvt_h_s *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fcvt_h_s(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1]);
@@ -1643,7 +1399,6 @@ static bool trans_fcvt_h_s(DisasContext *ctx, arg_fcvt_h_s *a)
 static bool trans_fcvt_h_d(DisasContext *ctx, arg_fcvt_h_d *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fcvt_h_d(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1]);
@@ -1655,7 +1410,6 @@ static bool trans_fcvt_h_d(DisasContext *ctx, arg_fcvt_h_d *a)
 static bool trans_fcvt_d_h(DisasContext *ctx, arg_fcvt_d_h *a)
 {
     REQUIRE_FPU;
-    REQUIRE_64BIT(ctx);
 
     gen_set_rm(ctx, a->rm);
     gen_helper_fcvt_d_h(cpu_fpr[a->rd], cpu_env, cpu_fpr[a->rs1]);
@@ -1689,42 +1443,35 @@ static bool trans_ipop(DisasContext *ctx, arg_ipop *a)
 
 static bool trans_fmv_hw_x(DisasContext *ctx, arg_fmv_hw_x *a)
 {
-#if defined(TARGET_RISCV32)
+    REQUIRE_32BIT(ctx);
     REQUIRE_FPU;
     REQUIRE_EXT(ctx, RVD);
 
-    TCGv_i32 t0 = tcg_temp_new_i32();
+    TCGv src1 = get_gpr(ctx, a->rs1, EXT_ZERO);
     TCGv_i64 t1 = tcg_temp_new_i64();
-    gen_get_gpr(t0, a->rs1);
 
-    tcg_gen_extu_i32_i64(t1, t0);
+    tcg_gen_extu_tl_i64(t1, src1);
     tcg_gen_deposit_i64(cpu_fpr[a->rd], cpu_fpr[a->rd], t1, 32, 32);
-    tcg_temp_free_i32(t0);
     tcg_temp_free_i64(t1);
     mark_fs_dirty(ctx);
-#else
-    gen_exception_illegal(ctx);
-#endif
     return true;
 }
 
 static bool trans_fmv_x_hw(DisasContext *ctx, arg_fmv_x_hw *a)
 {
-#if defined(TARGET_RISCV32)
+    REQUIRE_32BIT(ctx);
     REQUIRE_FPU;
     REQUIRE_EXT(ctx, RVD);
+    TCGv dst;
+    TCGv_i64 t1;
 
-    TCGv_i32 t0 = tcg_temp_new_i32();
-    TCGv_i64 t1 = tcg_const_i64(0);
+    dst = dest_gpr(ctx, a->rd);
+    t1 = tcg_temp_new_i64();
 
     tcg_gen_extract_i64(t1, cpu_fpr[a->rs1], 32, 32);
-    tcg_gen_extrl_i64_i32(t0, t1);
-    gen_set_gpr(a->rd, t0);
-    tcg_temp_free_i32(t0);
+    tcg_gen_trunc_i64_tl(dst, t1);
+    gen_set_gpr(ctx, a->rd, dst);
     tcg_temp_free_i64(t1);
     mark_fs_dirty(ctx);
-#else
-    gen_exception_illegal(ctx);
-#endif
     return true;
 }

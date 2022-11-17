@@ -36,7 +36,9 @@ typedef struct SiFiveCLINTState {
     uint32_t hartid_base;
     uint32_t num_harts;
     uint32_t sip_base;
+    uint32_t ssip_base;
     uint32_t timecmp_base;
+    uint32_t stimecmp_base;
     uint32_t time_base;
     uint32_t aperture_size;
     uint32_t timebase_freq;
@@ -44,9 +46,12 @@ typedef struct SiFiveCLINTState {
 
 DeviceState *sifive_clint_create(hwaddr addr, hwaddr size,
     uint32_t hartid_base, uint32_t num_harts, uint32_t sip_base,
-    uint32_t timecmp_base, uint32_t time_base, uint32_t timebase_freq,
+    uint32_t ssip_base, uint32_t timecmp_base, uint32_t stimecmp_base,
+    uint32_t time_base, uint32_t timebase_freq,
     bool provide_rdtime);
 
+void sifive_clint_write_stimecmp(RISCVCPU *cpu, uint64_t value,
+                                 uint32_t timebase_freq);
 enum {
     SIFIVE_SIP_BASE     = 0x0,
     SIFIVE_TIMECMP_BASE = 0x4000,

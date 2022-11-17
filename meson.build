@@ -1494,6 +1494,7 @@ disassemblers = {
   'or1k' : ['CONFIG_OPENRISC_DIS'],
   'ppc' : ['CONFIG_PPC_DIS'],
   'riscv' : ['CONFIG_RISCV_DIS'],
+  'csky' : ['CONFIG_CSKY_DIS'],
   'rx' : ['CONFIG_RX_DIS'],
   's390' : ['CONFIG_S390_DIS'],
   'sh4' : ['CONFIG_SH4_DIS'],
@@ -2251,7 +2252,7 @@ common_ss.add(files('cpus-common.c'))
 subdir('softmmu')
 
 common_ss.add(capstone)
-specific_ss.add(files('cpu.c', 'disas.c', 'gdbstub.c'), capstone)
+specific_ss.add(files('cpu.c', 'disas.c', 'gdbstub.c', 'tracestub.c', 'csky-trace.c'), capstone)
 
 # Work around a gcc bug/misfeature wherein constant propagation looks
 # through an alias:
@@ -2294,7 +2295,7 @@ common_ss.add(libbpf)
 bsd_user_ss.add(files('gdbstub.c'))
 specific_ss.add_all(when: 'CONFIG_BSD_USER', if_true: bsd_user_ss)
 
-linux_user_ss.add(files('gdbstub.c', 'thunk.c'))
+linux_user_ss.add(files('gdbstub.c', 'tracestub.c', 'csky-trace.c', 'thunk.c'))
 specific_ss.add_all(when: 'CONFIG_LINUX_USER', if_true: linux_user_ss)
 
 # needed for fuzzing binaries
@@ -2320,7 +2321,7 @@ block_mods = []
 softmmu_mods = []
 foreach d, list : modules
   foreach m, module_ss : list
-    if enable_modules and targetos != 'windows'
+    if enable_modules
       module_ss = module_ss.apply(config_all, strict: false)
       sl = static_library(d + '-' + m, [genh, module_ss.sources()],
                           dependencies: [modulecommon, module_ss.dependencies()], pic: true)
@@ -2494,15 +2495,15 @@ common_ss.add(hwcore)
 ###########
 # Targets #
 ###########
-
-foreach m : block_mods + softmmu_mods
-  shared_module(m.name(),
-                name_prefix: '',
-                link_whole: m,
-                install: true,
-                install_dir: qemu_moddir)
-endforeach
-
+if targetos != 'windows'
+  foreach m : block_mods + softmmu_mods
+    shared_module(m.name(),
+                  name_prefix: '',
+                  link_whole: m,
+                  install: true,
+                  install_dir: qemu_moddir)
+  endforeach
+endif
 softmmu_ss.add(authz, blockdev, chardev, crypto, io, qmp)
 common_ss.add(qom, qemuutil)
 
@@ -2520,6 +2521,8 @@ common_all = static_library('common',
 feature_to_c = find_program('scripts/feature_to_c.sh')
 
 emulators = {}
+process_mod = 0
+emulator = 0
 foreach target : target_dirs
   config_target = config_target_mak[target]
   target_name = config_target['TARGET_NAME']
@@ -2657,8 +2660,8 @@ foreach target : target_dirs
                link_language: link_language,
                link_depends: [block_syms, qemu_syms] + exe.get('link_depends', []),
                link_args: link_args,
+               implib: true,
                gui_app: exe['gui'])
-
     if targetos == 'darwin'
       icon = 'pc-bios/qemu.rsrc'
       build_input = [emulator, files(icon)]
@@ -2671,7 +2674,6 @@ foreach target : target_dirs
         build_input += files(entitlements)
         install_input += meson.current_source_dir() / entitlements
       endif
-
       emulators += {exe['name'] : custom_target(exe['name'],
                    input: build_input,
                    output: exe['name'],
@@ -2714,7 +2716,17 @@ foreach target : target_dirs
     endif
   endforeach
 endforeach
-
+foreach m : block_mods + softmmu_mods
+  if (targetos == 'windows') or (m.name().to_lower().contains('_dummy'))
+    shared_module(m.name(),
+	    name_prefix: '',
+	    link_whole: m,
+	    install: true,
+	    dependencies: glib,
+	    link_with: emulator,
+	    install_dir: qemu_moddir)
+  endif
+endforeach
 # Other build targets
 
 if 'CONFIG_PLUGIN' in config_host

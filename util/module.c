@@ -146,6 +146,9 @@ static bool module_check_arch(const QemuModinfo *modinfo)
 
 static int module_load_file(const char *fname, bool mayfail, bool export_symbols)
 {
+#ifdef WIN32
+    return -EINVAL;
+#endif
     GModule *g_module;
     void (*sym)(void);
     const char *dsosuf = CONFIG_HOST_DSOSUF;

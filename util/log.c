@@ -334,6 +334,8 @@ const QEMULogItem qemu_log_items[] = {
 #endif
     { LOG_STRACE, "strace",
       "log every user-mode syscall, its input, and its result" },
+    { CPU_TB_TRACE, "tb_trace",
+      "log all beginning PC of TranslationBlock" },
     { 0, NULL, NULL },
 };
 

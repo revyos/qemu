@@ -354,10 +354,13 @@ static void csky_uart_realize(DeviceState *dev, Error **errp)
 static void csky_uart_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
 
     dc->realize = csky_uart_realize;
     dc->vmsd = &vmstate_csky_uart;
     device_class_set_props(dc, csky_uart_properties);
+    dc->desc = "cskysim type: UART";
+    dc->user_creatable = true;
 }
 
 static const TypeInfo csky_uart_info = {

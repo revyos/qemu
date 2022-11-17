@@ -25,6 +25,8 @@
 #include "exec/cpu-defs.h"
 #include "fpu/softfloat-types.h"
 #include "qom/object.h"
+#include "cpu_bits.h"
+#include "exec/pctrace.h"
 
 #define TCG_GUEST_DEFAULT_MO 0
 
@@ -67,15 +69,17 @@
 #define TYPE_RISCV_CPU_C906             RISCV_CPU_TYPE_NAME("c906")
 #define TYPE_RISCV_CPU_C906FD           RISCV_CPU_TYPE_NAME("c906fd")
 #define TYPE_RISCV_CPU_C906FDV          RISCV_CPU_TYPE_NAME("c906fdv")
- 
+#define TYPE_RISCV_CPU_C908             RISCV_CPU_TYPE_NAME("c908")
+#define TYPE_RISCV_CPU_C908V            RISCV_CPU_TYPE_NAME("c908v")
+#define TYPE_RISCV_CPU_C960             RISCV_CPU_TYPE_NAME("c960")
+#define TYPE_RISCV_CPU_R910             RISCV_CPU_TYPE_NAME("r910")
+#define TYPE_RISCV_CPU_R920             RISCV_CPU_TYPE_NAME("r920")
+
 #if defined(TARGET_RISCV32)
 # define TYPE_RISCV_CPU_BASE            TYPE_RISCV_CPU_BASE32
 #elif defined(TARGET_RISCV64)
 # define TYPE_RISCV_CPU_BASE            TYPE_RISCV_CPU_BASE64
 #endif
-
-#define RV32 ((target_ulong)1 << (TARGET_LONG_BITS - 2))
-#define RV64 ((target_ulong)2 << (TARGET_LONG_BITS - 2))
 
 #define RV(x) ((target_ulong)1 << (x - 'A'))
 
@@ -91,7 +95,6 @@
 #define RVS RV('S')
 #define RVU RV('U')
 #define RVH RV('H')
-#define RVB RV('B')
 
 /* ['A' + 26, (TARGET_LONG_BITS - 2)) are used for non standard extensions */
 #define RVXTHEAD RV('A' + 26)
@@ -107,11 +110,15 @@ enum {
     RISCV_FEATURE_MISA
 };
 
-#define PRIV_VERSION_1_10_0 0x00011000
-#define PRIV_VERSION_1_11_0 0x00011100
+/* Privileged specification version */
+enum {
+    PRIV_VERSION_1_10_0 = 0,
+    PRIV_VERSION_1_11_0,
+    PRIV_VERSION_1_12_0,
+};
 
-#define BEXT_VERSION_0_93_0 0x00009300
 #define VEXT_VERSION_0_07_1 0x00000701
+#define VEXT_VERSION_1_00_0 0x00010000
 #define PEXT_VERSION_0_09_4 0x00000904
 
 enum {
@@ -123,7 +130,7 @@ enum {
 
 #define MMU_USER_IDX 3
 
-#define MAX_RISCV_PMPS (16)
+#define MAX_RISCV_PMPS (64)
 
 /* MMU MCIR bit MASK */
 #define CSKY_SMCIR_TLBP_SHIFT        31
@@ -149,13 +156,24 @@ typedef struct CPURISCVState CPURISCVState;
 #include "pmp.h"
 #endif
 
-#define RV_VLEN_MAX 256
+#define RV_VLEN_MAX 1024
+FIELD(VTYPE_7, VLMUL, 0, 2)
+FIELD(VTYPE_7, VSEW, 2, 3)
+FIELD(VTYPE_7, VEDIV, 5, 2)
+FIELD(VTYPE_7, RESERVED, 7, sizeof(target_ulong) * 8 - 9)
+FIELD(VTYPE_7, VILL, sizeof(target_ulong) * 8 - 1, 1)
+FIELD(VTYPE_7, VILL_OLEN32, 31, 1)
+FIELD(VTYPE_7, RESERVED_OLEN32, 7, 23)
 
-FIELD(VTYPE, VLMUL, 0, 2)
-FIELD(VTYPE, VSEW, 2, 3)
-FIELD(VTYPE, VEDIV, 5, 2)
-FIELD(VTYPE, RESERVED, 7, sizeof(target_ulong) * 8 - 9)
+FIELD(VTYPE, VLMUL, 0, 3)
+FIELD(VTYPE, VSEW, 3, 3)
+FIELD(VTYPE, VTA, 6, 1)
+FIELD(VTYPE, VMA, 7, 1)
+FIELD(VTYPE, VEDIV, 8, 2)
+FIELD(VTYPE, RESERVED, 10, sizeof(target_ulong) * 8 - 11)
 FIELD(VTYPE, VILL, sizeof(target_ulong) * 8 - 1, 1)
+FIELD(VTYPE, VILL_OLEN32, 31, 1)
+FIELD(VTYPE, RESERVED_OLEN32, 7, 24)
 
 struct CPURISCVState {
     target_ulong gpr[32];
@@ -182,8 +200,12 @@ struct CPURISCVState {
     target_ulong bext_ver;
     target_ulong vext_ver;
     target_ulong pext_ver;
-    target_ulong misa;
-    target_ulong misa_mask;
+
+    /* RISCVMXL, but uint32_t for vmstate migration */
+    uint32_t misa_mxl;      /* current mxl */
+    uint32_t misa_mxl_max;  /* max mxl for this cpu */
+    uint32_t misa_ext;      /* current extensions */
+    uint32_t misa_ext_mask; /* max ext for this cpu */
 
     uint32_t features;
 
@@ -193,6 +215,7 @@ struct CPURISCVState {
 
 #ifndef CONFIG_USER_ONLY
     target_ulong priv;
+    target_ulong excp_vld;
     /* This contains QEMU specific information about the virt state. */
     target_ulong virt;
     target_ulong resetvec;
@@ -279,6 +302,7 @@ struct CPURISCVState {
     uint64_t mfromhost;
     uint64_t mtohost;
     uint64_t timecmp;
+    uint64_t stimecmp;
 
     /* physical memory protection */
     pmp_table_t pmp_state;
@@ -304,18 +328,61 @@ struct CPURISCVState {
     /* csky e906 extends */
     uint64_t mexstatus;
 
+    /* tcm */
+    MemoryRegion *dtcm;
+    MemoryRegion *itcm;
+    target_ulong mdtcmcr;
+    target_ulong mitcmcr;
+
     CPURISCVState * next_cpu;
     bool     in_reset;
 
+    /* CSRs for execution enviornment configuration */
+    uint64_t menvcfg;
+    target_ulong senvcfg;
+    uint64_t henvcfg;
 #endif
-
+    bool     bf16;
+    struct {
+        uint32_t tcr;
+        uint32_t ter;
+        uint32_t tsr;
+        uint32_t cyc;
+        uint32_t sync;
+        uint32_t hw_trgr;
+        uint32_t addr_cmpr_config[2];
+        uint32_t addr_cmpr[2];
+        uint32_t asid;
+        uint32_t data_cmpr_config[2];
+        uint32_t data_cmpr[2];
+        uint32_t channel;
+        uint32_t data;
+        uint32_t status;
+    } cp13;
     uint64_t elf_start;
+    target_ulong last_pc;
     float_status fp_status;
 
     /* Fields from here on are preserved across CPU reset. */
     QEMUTimer *timer; /* Internal timer */
+    QEMUTimer *stimer; /* Internal timer */
     void *clic;       /* clic interrupt controller */
     uint32_t exccode; /* clic irq encode */
+
+    uint32_t pctrace;
+    uint32_t tb_trace;
+#ifdef TARGET_RISCV64
+    uint64_t jcount_enable;
+    uint64_t jcount_start;
+    uint64_t jcount_end;
+#else
+    uint32_t jcount_enable;
+    uint32_t jcount_start;
+    uint32_t jcount_end;
+#endif
+    struct csky_trace_info *trace_info;
+    uint32_t trace_index;
+    target_ulong overflow_flag;
 };
 
 OBJECT_DECLARE_TYPE(RISCVCPU, RISCVCPUClass,
@@ -364,17 +431,26 @@ struct RISCVCPU {
         bool ext_f;
         bool ext_d;
         bool ext_c;
-        bool ext_b;
         bool ext_s;
         bool ext_u;
         bool ext_h;
         bool ext_v;
         bool ext_p;
+        bool ext_zba;
+        bool ext_zbb;
+        bool ext_zbc;
+        bool ext_zbs;
         bool ext_counters;
         bool ext_ifencei;
         bool ext_icsr;
+        bool ext_icbom;
+        bool ext_icboz;
+        bool ext_svinval;
+        bool ext_svnapot;
+        bool ext_svpbmt;
         bool ext_psfoperand;
         bool ext_thead;
+        bool ext_sstc;
 
         char *priv_spec;
         char *user_spec;
@@ -383,6 +459,7 @@ struct RISCVCPU {
         char *pext_spec;
         uint16_t vlen;
         uint16_t elen;
+        uint16_t cbozlen;
         bool mmu;
         bool pmp;
         bool epmp;
@@ -393,7 +470,7 @@ struct RISCVCPU {
 
 static inline int riscv_has_ext(CPURISCVState *env, target_ulong ext)
 {
-    return (env->misa & ext) != 0;
+    return (env->misa_ext & ext) != 0;
 }
 
 static inline bool riscv_feature(CPURISCVState *env, int feature)
@@ -401,13 +478,24 @@ static inline bool riscv_feature(CPURISCVState *env, int feature)
     return env->features & (1ULL << feature);
 }
 
+
 #include "cpu_user.h"
-#include "cpu_bits.h"
 
 extern const char * const riscv_int_regnames[];
 extern const char * const riscv_fpr_regnames[];
 
-const char *riscv_cpu_get_trap_name(target_ulong cause, bool async);
+#define ENV_GET_CPU(e) CPU(riscv_env_get_cpu(e))
+#define ENV_OFFSET offsetof(RISCVCPU, env)
+
+#define ENV_GET_MMU(e) riscv_feature(e, RISCV_FEATURE_MMU)
+
+#ifdef CONFIG_USER_ONLY
+    #define ENV_GET_ASID(e) 0
+#else
+    #define ENV_GET_ASID(e) env->satp && SATP32_ASID
+#endif
+
+const char *riscv_cpu_get_trap_name(target_ulong cause, bool async, bool clic);
 void riscv_cpu_do_interrupt(CPUState *cpu);
 int riscv_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
                                int cpuid, void *opaque);
@@ -417,6 +505,7 @@ int riscv_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
 int riscv_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request);
 bool riscv_cpu_fp_enabled(CPURISCVState *env);
+bool riscv_cpu_vector_enabled(CPURISCVState *env);
 bool riscv_cpu_virt_enabled(CPURISCVState *env);
 void riscv_cpu_set_virt_enabled(CPURISCVState *env, bool enable);
 bool riscv_cpu_force_hs_excep_enabled(CPURISCVState *env);
@@ -460,23 +549,49 @@ void QEMU_NORETURN riscv_raise_exception(CPURISCVState *env,
 target_ulong riscv_cpu_get_fflags(CPURISCVState *env);
 void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
 
-#define TB_FLAGS_MMU_MASK   7
 #define TB_FLAGS_PRIV_MMU_MASK                3
 #define TB_FLAGS_PRIV_HYP_ACCESS_MASK   (1 << 2)
 #define TB_FLAGS_MSTATUS_FS MSTATUS_FS
+#define TB_FLAGS_MSTATUS_VS MSTATUS_VS
 
 typedef CPURISCVState CPUArchState;
 typedef RISCVCPU ArchCPU;
 #include "exec/cpu-all.h"
 
-FIELD(TB_FLAGS, VL_EQ_VLMAX, 2, 1)
-FIELD(TB_FLAGS, LMUL, 3, 2)
-FIELD(TB_FLAGS, SEW, 5, 3)
-FIELD(TB_FLAGS, VILL, 8, 1)
+FIELD(TB_FLAGS, MEM_IDX, 0, 3)
+FIELD(TB_FLAGS, LMUL, 3, 3)
+FIELD(TB_FLAGS, SEW, 6, 3)
+/* Skip MSTATUS_VS (0x600) bits */
+FIELD(TB_FLAGS, VL_EQ_VLMAX, 11, 1)
+FIELD(TB_FLAGS, VILL, 12, 1)
+/* Skip MSTATUS_FS (0x6000) bits */
 /* Is a Hypervisor instruction load/store allowed? */
-FIELD(TB_FLAGS, HLSX, 9, 1)
+FIELD(TB_FLAGS, HLSX, 15, 1)
+/* The combination of MXL/SXL/UXL that applies to the current cpu mode. */
+FIELD(TB_FLAGS, XL, 16, 2)
+FIELD(TB_FLAGS, BF16, 24, 1)
 
-bool riscv_cpu_is_32bit(CPURISCVState *env);
+#ifdef TARGET_RISCV32
+#define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)
+#else
+static inline RISCVMXL riscv_cpu_mxl(CPURISCVState *env)
+{
+    return env->misa_mxl;
+}
+#endif
+
+#ifdef TARGET_RISCV32
+#define riscv_cpu_sxl(env)  ((void)(env), MXL_RV32)
+#else
+static inline RISCVMXL riscv_cpu_sxl(CPURISCVState *env)
+{
+#ifdef CONFIG_USER_ONLY
+    return env->misa_mxl;
+#else
+    return get_field(env->mstatus, MSTATUS64_SXL);
+#endif
+}
+#endif
 
 /*
  * A simplification for VLMAX
@@ -485,57 +600,45 @@ bool riscv_cpu_is_32bit(CPURISCVState *env);
  * = (VLEN << LMUL) >> (SEW + 3)
  * = VLEN >> (SEW + 3 - LMUL)
  */
-static inline uint32_t vext_get_vlmax(RISCVCPU *cpu, target_ulong vtype)
+static inline uint32_t vext_get_vlmax_7(RISCVCPU *cpu, target_ulong vtype)
 {
-    uint8_t sew, lmul;
+    uint8_t sew = 0, lmul = 0;
 
-    sew = FIELD_EX64(vtype, VTYPE, VSEW);
-    lmul = FIELD_EX64(vtype, VTYPE, VLMUL);
+    if (cpu->env.vext_ver == VEXT_VERSION_0_07_1) {
+        sew = FIELD_EX64(vtype, VTYPE_7, VSEW);
+        lmul = FIELD_EX64(vtype, VTYPE_7, VLMUL);
+    }
     return cpu->cfg.vlen >> (sew + 3 - lmul);
 }
 
-static inline void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
-                                        target_ulong *cs_base, uint32_t *pflags)
+/*
+ * Encode LMUL to lmul as follows:
+ *     LMUL    vlmul    lmul
+ *      1       000       0
+ *      2       001       1
+ *      4       010       2
+ *      8       011       3
+ *      -       100       -
+ *     1/8      101      -3
+ *     1/4      110      -2
+ *     1/2      111      -1
+ *
+ * then, we can calculate VLMAX = vlen >> (vsew + 3 - lmul)
+ * e.g. vlen = 256 bits, SEW = 16, LMUL = 1/8
+ *      => VLMAX = vlen >> (1 + 3 - (-3))
+ *               = 256 >> 7
+ *               = 2
+ */
+static inline uint32_t vext_get_vlmax(RISCVCPU *cpu, target_ulong vtype)
 {
-    uint32_t flags = 0;
-
-    *pc = env->pc;
-    *cs_base = 0;
-
-    if (riscv_has_ext(env, RVV)) {
-        uint32_t vlmax = vext_get_vlmax(env_archcpu(env), env->vtype);
-        bool vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl);
-        flags = FIELD_DP32(flags, TB_FLAGS, VILL,
-                    FIELD_EX64(env->vtype, VTYPE, VILL));
-        flags = FIELD_DP32(flags, TB_FLAGS, SEW,
-                    FIELD_EX64(env->vtype, VTYPE, VSEW));
-        flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
-                    FIELD_EX64(env->vtype, VTYPE, VLMUL));
-        flags = FIELD_DP32(flags, TB_FLAGS, VL_EQ_VLMAX, vl_eq_vlmax);
-    } else {
-        flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
-    }
-
-#ifdef CONFIG_USER_ONLY
-    flags |= TB_FLAGS_MSTATUS_FS;
-#else
-    flags |= cpu_mmu_index(env, 0);
-    if (riscv_cpu_fp_enabled(env)) {
-        flags |= env->mstatus & MSTATUS_FS;
-    }
-
-    if (riscv_has_ext(env, RVH)) {
-        if (env->priv == PRV_M ||
-            (env->priv == PRV_S && !riscv_cpu_virt_enabled(env)) ||
-            (env->priv == PRV_U && !riscv_cpu_virt_enabled(env) &&
-                get_field(env->hstatus, HSTATUS_HU))) {
-            flags = FIELD_DP32(flags, TB_FLAGS, HLSX, 1);
-        }
-    }
-#endif
-
-    *pflags = flags;
+    uint8_t sew = FIELD_EX64(vtype, VTYPE, VSEW);
+    int8_t lmul = sextract32(FIELD_EX64(vtype, VTYPE, VLMUL), 0, 3);
+    return cpu->cfg.vlen >> (sew + 3 - lmul);
 }
+
+RISCVMXL cpu_get_xl(CPURISCVState *env);
+void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
+                          target_ulong *cs_base, uint32_t *pflags);
 
 RISCVException riscv_csrrw(CPURISCVState *env, int csrno,
                            target_ulong *ret_value,
@@ -575,6 +678,8 @@ typedef struct {
     riscv_csr_read_fn read;
     riscv_csr_write_fn write;
     riscv_csr_op_fn op;
+    /* The default priv spec version should be PRIV_VERSION_1_10_0 (i.e 0) */
+    uint32_t min_priv_ver;
 } riscv_csr_operations;
 
 /* CSR function table constants */

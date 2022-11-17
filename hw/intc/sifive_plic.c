@@ -260,6 +260,10 @@ static uint64_t sifive_plic_read(void *opaque, hwaddr addr, unsigned size)
         }
     }
 
+    if (addr == 0x1FFFFC) {
+        return plic->ctrl;
+    }
+
 err:
     qemu_log_mask(LOG_GUEST_ERROR,
                   "%s: Invalid register read 0x%" HWADDR_PRIx "\n",
@@ -291,9 +295,9 @@ static void sifive_plic_write(void *opaque, hwaddr addr, uint64_t value,
     } else if (addr >= plic->pending_base && /* 1 bit per source */
                addr < plic->pending_base + (plic->num_sources >> 3))
     {
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: invalid pending write: 0x%" HWADDR_PRIx "",
-                      __func__, addr);
+        uint32_t word = (addr - plic->pending_base) >> 2;
+        plic->pending[word] = value;
+        sifive_plic_update(plic);
         return;
     } else if (addr >= plic->enable_base && /* 1 bit per source */
         addr < plic->enable_base + plic->num_addrs * plic->enable_stride)
@@ -340,6 +344,10 @@ static void sifive_plic_write(void *opaque, hwaddr addr, uint64_t value,
             }
             return;
         }
+    }
+    if (addr == 0x1FFFFC) {/* FIXME: implement more restrict semantic */
+        plic->ctrl = value & 0x1;
+        return;
     }
 
 err:
@@ -485,6 +493,8 @@ static const VMStateDescription vmstate_sifive_plic = {
                                   vmstate_info_uint32, uint32_t),
             VMSTATE_VARRAY_UINT32(pending, SiFivePLICState, bitfield_words, 0,
                                   vmstate_info_uint32, uint32_t),
+            VMSTATE_VARRAY_UINT32(pending, SiFivePLICState, ctrl, 0,
+                                  vmstate_info_uint32, uint32_t),
             VMSTATE_VARRAY_UINT32(claimed, SiFivePLICState, bitfield_words, 0,
                                   vmstate_info_uint32, uint32_t),
             VMSTATE_VARRAY_UINT32(enable, SiFivePLICState, num_enables, 0,
@@ -496,10 +506,13 @@ static const VMStateDescription vmstate_sifive_plic = {
 static void sifive_plic_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
 
     device_class_set_props(dc, sifive_plic_properties);
     dc->realize = sifive_plic_realize;
     dc->vmsd = &vmstate_sifive_plic;
+    dc->desc = "cskysim type: INTC";
+    dc->user_creatable = true;
 }
 
 static const TypeInfo sifive_plic_info = {

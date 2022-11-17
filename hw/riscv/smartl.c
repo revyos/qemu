@@ -41,8 +41,11 @@ static const MemMapEntry smartl_memmap[] = {
     [SMARTL_SRAM1] =            {  0x20000000, 16 * MiB },
     [SMARTL_TIMER] =            {  0x40011000, 16 * KiB },
     [SMARTL_UART] =             {  0x40015000, 4  * MiB },
+    [SMARTL_TIMER2] =           {  0x40810000, 16 * KiB },
+    [SMARTL_UART2] =            {  0x40850000, 4  * MiB },
     [SMARTL_SRAM2] =            {  0x50000000, 16 * MiB },
     [SMARTL_SRAM3] =            {  0x60000000, 16 * MiB },
+    [SMARTL_PMU] =              {  0x6104FFF8, 1 * KiB },
     [SMARTL_CLINT] =            {  0xe0000000, 64 * KiB },
     [SMARTL_CLIC] =             {  0xe0800000, 20 * KiB },
     [SMARTL_SYSTEMMAP] =        {  0xeffff000, 0x40 },
@@ -60,6 +63,7 @@ static uint64_t load_kernel(CPURISCVState *env, const char *kernel_filename)
         exit(1);
     }
     env->pc = (uint32_t)kernel_entry;
+    env->elf_start = kernel_entry;
     return kernel_entry;
 }
 
@@ -72,18 +76,34 @@ smartl_add_memory_subregion(MemoryRegion *sysmem, hwaddr base, hwaddr size,
     memory_region_add_subregion(sysmem, base, ram);
 }
 
+static void smartl_machine_instance_init(Object *obj)
+{
+}
+
 static void smartl_init(MachineState *machine)
 {
-    CPURISCVState *env;
+    CPURISCVState *env = NULL;
     DeviceState *dev;
+    RISCVSmartlState *s = RISCV_SMARTL_MACHINE(machine);
     MemoryRegion *sysmem = get_system_memory();
-    qemu_irq *irqs = g_malloc0(sizeof(qemu_irq) * SMARTL_CLIC_IRQ_NUMS);
+    qemu_irq *irqs = g_malloc0(sizeof(qemu_irq) *
+                               machine->smp.cpus *
+                               SMARTL_CLIC_IRQ_NUMS);
+    qemu_irq *pirq = g_malloc0(sizeof(qemu_irq) * 2 * machine->smp.cpus);
     int i;
 
     /* Create cpu */
-    Object *cpuobj = object_new(machine->cpu_type);
-    object_property_set_bool(cpuobj, "realized", true, &error_fatal);
-    env = &RISCV_CPU(cpuobj)->env;
+    for (i = 0; i < machine->smp.cpus; i++) {
+        Object *cpuobj = object_new(machine->cpu_type);
+        object_property_set_bool(cpuobj, "realized", true, &error_fatal);
+        if (i == 0) {
+            env = &RISCV_CPU(cpuobj)->env;
+        } else {
+            CPU(cpuobj)->halted = true;
+        }
+        s->harts[i] = RISCV_CPU(cpuobj);
+        s->harts[i]->env.mhartid = i;
+    }
 
     /* Add memory region */
     for (i = 0; i < 5; i++) {
@@ -95,17 +115,24 @@ static void smartl_init(MachineState *machine)
 
     /* Create CLIC */
     dev = riscv_clic_create(smartl_memmap[SMARTL_CLIC].base,
-                            false, false,
-                            SMARTL_CLIC_HARTS,
+                            false, false, true,
+                            machine->smp.cpus,
                             SMARTL_CLIC_IRQ_NUMS,
                             SMARTL_CLIC_INTCTLBITS,
                             SMARTL_CLIC_VERSION);
-    for (i = 0; i < SMARTL_CLIC_IRQ_NUMS; i++) {
+    for (i = 0; i < machine->smp.cpus * SMARTL_CLIC_IRQ_NUMS; i++) {
         irqs[i] = qdev_get_gpio_in(dev, i);
     }
 
     /* Create CLINT */
-    thead_clint_create(smartl_memmap[SMARTL_CLINT].base, irqs[3], irqs[7]);
+    pirq[0] = irqs[3];
+    pirq[1] = irqs[7];
+    if (machine->smp.cpus > 1) {
+        pirq[2] = irqs[SMARTL_CLIC_IRQ_NUMS + 3];
+        pirq[3] = irqs[SMARTL_CLIC_IRQ_NUMS + 7];
+    }
+    thead_clint_create(smartl_memmap[SMARTL_CLINT].base, pirq,
+                       machine->smp.cpus);
 
     /* Create THEAD UART */
     csky_uart_create(smartl_memmap[SMARTL_UART].base, irqs[0x10], serial_hd(0));
@@ -115,9 +142,23 @@ static void smartl_init(MachineState *machine)
     sysbus_create_varargs("csky_timer",
                           smartl_memmap[SMARTL_TIMER].base, irqs[0x12], irqs[0x13],
                           irqs[0x14], irqs[0x15], NULL);
+    if (machine->smp.cpus > 1) {
+        sysbus_create_varargs("csky_timer",
+                              smartl_memmap[SMARTL_TIMER2].base,
+                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x12],
+                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x13],
+                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x14],
+                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x15],
+                              NULL);
+        csky_uart_create(smartl_memmap[SMARTL_UART2].base,
+                         irqs[SMARTL_CLIC_IRQ_NUMS + 0x10],
+                         serial_hd(0));
+    }
 
     /* Create THEAD exit */
     sysbus_create_simple("csky_exit", smartl_memmap[SMARTL_EXIT].base, NULL);
+    /* Create THEAD pmu */
+    sysbus_create_simple("thead_pmu", smartl_memmap[SMARTL_PMU].base, NULL);
 
     if (machine->kernel_filename) {
         load_kernel(env, machine->kernel_filename);
@@ -131,12 +172,15 @@ static void smartl_class_init(ObjectClass *oc, void *data)
     mc->desc = "RISC-V smartl";
     mc->init = smartl_init;
     mc->default_cpu_type = RISCV_CPU_TYPE_NAME("e906fdp");
+    mc->max_cpus = 2;
 }
 
 static const TypeInfo smartl_type = {
     .name = MACHINE_TYPE_NAME("smartl"),
     .parent = TYPE_MACHINE,
     .class_init = smartl_class_init,
+    .instance_init = smartl_machine_instance_init,
+    .instance_size = sizeof(RISCVSmartlState),
 };
 
 static void smartl_machine_init(void)

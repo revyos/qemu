@@ -278,8 +278,11 @@ static const VMStateDescription vmstate_csky_timer = {
 static void csky_timer_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
 
     dc->vmsd = &vmstate_csky_timer;
+    dc->desc = "cskysim type: TIMER";
+    dc->user_creatable = true;
 }
 
 static const TypeInfo csky_timer_info = {
