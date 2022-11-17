@@ -45,6 +45,19 @@
 #define FSR_VXSAT_SHIFT     8
 #define FSR_VXSAT           (0x1 << FSR_VXSAT_SHIFT)
 
+/* Matrix Sub Extension */
+#define MATRIX_PW_I32       0x80
+#define MATRIX_PW_I64       0x40
+#define MATRIX_MULT_F64F64  0x20
+#define MATRIX_MULT_F32F32  0x10
+#define MATRIX_MULT_F16F16  0x8
+#define MATRIX_MULT_I8I32   0x4
+#define MATRIX_MULT_I16I64  0x2
+#define MATRIX_MULT_I4I32   0x1
+
+/* Matrix Status */
+#define MCSR_MS            0x3
+
 /* Control and Status Registers */
 
 /* User Trap Setup */
@@ -372,6 +385,16 @@
 
 #define CSR_FXCR            0x800
 
+/* Matrix CSR */
+#define CSR_MRSTART         0x801
+#define CSR_MCSR            0x802
+#define CSR_MXRM            0x803
+#define CSR_MXSAT           0xCC0
+#define CSR_MSIZE           0xCC1
+#define CSR_MREGSIZE        0xCC2
+#define CSR_MLENB           0xCC3
+#define CSR_XMISA           0xCC4
+
 #define MEXSTATUS_EXPT      0x20
 #define MEXSTATUS_SPSWAP    0x20000
 
@@ -522,6 +545,7 @@ typedef enum {
 #define SSTATUS_SPIE        0x00000020
 #define SSTATUS_SPP         0x00000100
 #define SSTATUS_VS          0x00000600
+#define SSTATUS_MS          0x01800000
 #define SSTATUS_FS          0x00006000
 #define SSTATUS_XS          0x00018000
 #define SSTATUS_SUM         0x00040000 /* since: priv-1.10 */

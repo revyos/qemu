@@ -22,6 +22,7 @@
 #include "cpu.h"
 #include "qemu/main-loop.h"
 #include "exec/exec-all.h"
+#include "internals.h"
 
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/intc/riscv_clic.h"
@@ -75,6 +76,22 @@ static RISCVException vs(CPURISCVState *env, int csrno)
         return RISCV_EXCP_NONE;
     }
     return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException ms(CPURISCVState *env, int csrno)
+{
+    CPUState *cs = env_cpu(env);
+    RISCVCPU *cpu = RISCV_CPU(cs);
+
+    if (cpu->cfg.ext_matrix) {
+#if !defined(CONFIG_USER_ONLY)
+        if (!env->debugger && !riscv_cpu_matrix_enabled(env)) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+#endif
+        return RISCV_EXCP_NONE;
+    }
+    return RISCV_EXCP_NONE;
 }
 
 static RISCVException ctr(CPURISCVState *env, int csrno)
@@ -342,6 +359,85 @@ static RISCVException read_vxrm(CPURISCVState *env, int csrno,
                                 target_ulong *val)
 {
     *val = env->vxrm;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mrstart(CPURISCVState *env, int csrno,
+                                   target_ulong *val)
+{
+    *val = env->mrstart;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mrstart(CPURISCVState *env, int csrno,
+                                    target_ulong val)
+{
+    if (val < get_mrows(env)) {
+        env->mrstart = val;
+    }
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mcsr(CPURISCVState *env, int csrno,
+                                target_ulong *val)
+{
+    *val = env->mcsr;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mcsr(CPURISCVState *env, int csrno,
+                                 target_ulong val)
+{
+    env->mcsr = val & MCSR_MS;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mxrm(CPURISCVState *env, int csrno,
+                                target_ulong *val)
+{
+    *val = env->mxrm;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mxrm(CPURISCVState *env, int csrno,
+                                 target_ulong val)
+{
+    env->mxrm = val & 0x03;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mxsat(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = env->mxsat;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_msize(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = (env->sizek << 16) | (env->sizen << 8) | (env->sizem);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mregsize(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = get_mregsize(env);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mlenb(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = get_mlenb(env);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmisa(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = env->xmisa;
     return RISCV_EXCP_NONE;
 }
 
@@ -1570,6 +1666,9 @@ static RISCVException read_sstatus(CPURISCVState *env, int csrno,
     if (env->vext_ver == VEXT_VERSION_1_00_0) {
         mask |= SSTATUS_VS;
     }
+    if (env_archcpu(env)->cfg.ext_matrix) {
+        mask |= SSTATUS_MS;
+    }
     if (cpu_get_xl(env) != MXL_RV32 || env->debugger) {
         mask |= SSTATUS64_UXL;
     }
@@ -1585,6 +1684,9 @@ static RISCVException write_sstatus(CPURISCVState *env, int csrno,
 
     if (env->vext_ver == VEXT_VERSION_1_00_0) {
         mask |= SSTATUS_VS;
+    }
+    if (env_archcpu(env)->cfg.ext_matrix) {
+        mask |= SSTATUS_MS;
     }
 
     if (cpu_get_xl(env) != MXL_RV32 || env->debugger) {
@@ -2443,6 +2545,17 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_VL]       = { "vl",       vs,     read_vl                    },
     [CSR_VTYPE]    = { "vtype",    vs,     read_vtype                 },
     [CSR_VLENB]    = { "vlenb",    vs,     read_vlenb                 },
+
+    /* Matrix CSRs */
+    [CSR_MRSTART]  = { "mrstart",  ms,    read_mrstart, write_mrstart},
+    [CSR_MCSR]     = { "mcsr",     ms,    read_mcsr,    write_mcsr   },
+    [CSR_MXRM]     = { "mxrm",     ms,    read_mxrm,    write_mxrm   },
+    [CSR_MXSAT]    = { "mxsat",    ms,    read_mxsat                 },
+    [CSR_MSIZE]    = { "msize",    ms,    read_msize                 },
+    [CSR_MREGSIZE] = { "mregsize", ms,    read_mregsize              },
+    [CSR_MLENB]    = { "mlenb",    ms,    read_mlenb                 },
+    [CSR_XMISA]    = { "xmisa",    ms,    read_xmisa                 },
+
     /* User Timers and Counters */
     [CSR_CYCLE]    = { "cycle",    ctr,    read_instret  },
     [CSR_INSTRET]  = { "instret",  ctr,    read_instret  },

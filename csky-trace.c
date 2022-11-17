@@ -53,6 +53,26 @@ inline bool gen_tb_trace(void)
     return false;
 }
 
+inline bool gen_x_vf_trace(void)
+{
+    if (tfilter.enable) {
+        if (tfilter.event & TRACE_EVENT_X_VF) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool gen_x_lmul_trace(void)
+{
+    if (tfilter.enable) {
+        if (tfilter.event & TRACE_EVENT_X_LMUL) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static inline uint32_t csky_trace_get_addr_base(target_ulong addr)
 {
     if (sizeof(target_ulong) == 8) {

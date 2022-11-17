@@ -175,6 +175,19 @@ FIELD(VTYPE, VILL, sizeof(target_ulong) * 8 - 1, 1)
 FIELD(VTYPE, VILL_OLEN32, 31, 1)
 FIELD(VTYPE, RESERVED_OLEN32, 7, 24)
 
+FIELD(MSIZE, SIZEM, 0, 8)
+FIELD(MSIZE, SIZEN, 8, 8)
+FIELD(MSIZE, SIZEK, 16, 16)
+
+#define RV_MLEN_MAX 1024
+#define RV_MACC_LEN 32
+
+/* See the commentary above the TBFLAG field definitions.  */
+typedef struct CPURISCVTBFlags {
+    uint32_t flags;
+    target_ulong flags2;
+} CPURISCVTBFlags;
+
 struct CPURISCVState {
     target_ulong gpr[32];
     uint64_t fpr[32]; /* assume both F and D extensions */
@@ -186,6 +199,13 @@ struct CPURISCVState {
     target_ulong vl;
     target_ulong vstart;
     target_ulong vtype;
+
+    /* matrix state */
+    target_ulong mrstart;
+    target_ulong mcsr;
+    target_ulong mxsat;
+    target_ulong mxrm;
+    target_ulong xmisa;
 
     target_ulong pc;
     target_ulong load_res;
@@ -363,6 +383,10 @@ struct CPURISCVState {
     target_ulong last_pc;
     float_status fp_status;
 
+    uint64_t mreg[8 * RV_MLEN_MAX / RV_MACC_LEN  * RV_MLEN_MAX / 64] QEMU_ALIGNED(16);
+    target_ulong sizem;
+    target_ulong sizen;
+    target_ulong sizek;
     /* Fields from here on are preserved across CPU reset. */
     QEMUTimer *timer; /* Internal timer */
     QEMUTimer *stimer; /* Internal timer */
@@ -420,6 +444,7 @@ struct RISCVCPU {
 
     char *dyn_csr_xml;
     char *dyn_vreg_xml;
+    char *dyn_mreg_xml;
 
     /* Configuration Settings */
     struct {
@@ -450,6 +475,7 @@ struct RISCVCPU {
         bool ext_svpbmt;
         bool ext_psfoperand;
         bool ext_thead;
+        bool ext_matrix;
         bool ext_sstc;
 
         char *priv_spec;
@@ -458,8 +484,10 @@ struct RISCVCPU {
         char *vext_spec;
         char *pext_spec;
         uint16_t vlen;
+        uint16_t matlen;
         uint16_t elen;
         uint16_t cbozlen;
+        uint16_t datapath;
         bool mmu;
         bool pmp;
         bool epmp;
@@ -506,6 +534,7 @@ int riscv_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request);
 bool riscv_cpu_fp_enabled(CPURISCVState *env);
 bool riscv_cpu_vector_enabled(CPURISCVState *env);
+bool riscv_cpu_matrix_enabled(CPURISCVState *env);
 bool riscv_cpu_virt_enabled(CPURISCVState *env);
 void riscv_cpu_set_virt_enabled(CPURISCVState *env, bool enable);
 bool riscv_cpu_force_hs_excep_enabled(CPURISCVState *env);
@@ -549,27 +578,52 @@ void QEMU_NORETURN riscv_raise_exception(CPURISCVState *env,
 target_ulong riscv_cpu_get_fflags(CPURISCVState *env);
 void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
 
-#define TB_FLAGS_PRIV_MMU_MASK                3
-#define TB_FLAGS_PRIV_HYP_ACCESS_MASK   (1 << 2)
-#define TB_FLAGS_MSTATUS_FS MSTATUS_FS
-#define TB_FLAGS_MSTATUS_VS MSTATUS_VS
+#define TB_FLAGS_ANY_PRIV_MMU_MASK                3
+#define TB_FLAGS_ANY_PRIV_HYP_ACCESS_MASK   (1 << 2)
+#define TB_FLAGS_ANY_MSTATUS_FS MSTATUS_FS
+#define TB_FLAGS_ANY_MSTATUS_VS MSTATUS_VS
 
 typedef CPURISCVState CPUArchState;
 typedef RISCVCPU ArchCPU;
 #include "exec/cpu-all.h"
 
-FIELD(TB_FLAGS, MEM_IDX, 0, 3)
-FIELD(TB_FLAGS, LMUL, 3, 3)
-FIELD(TB_FLAGS, SEW, 6, 3)
+FIELD(TB_FLAGS_ANY, MEM_IDX, 0, 3)
+FIELD(TB_FLAGS_ANY, LMUL, 3, 3)
+FIELD(TB_FLAGS_ANY, SEW, 6, 3)
 /* Skip MSTATUS_VS (0x600) bits */
-FIELD(TB_FLAGS, VL_EQ_VLMAX, 11, 1)
-FIELD(TB_FLAGS, VILL, 12, 1)
+FIELD(TB_FLAGS_ANY, VL_EQ_VLMAX, 11, 1)
+FIELD(TB_FLAGS_ANY, VILL, 12, 1)
 /* Skip MSTATUS_FS (0x6000) bits */
 /* Is a Hypervisor instruction load/store allowed? */
-FIELD(TB_FLAGS, HLSX, 15, 1)
+FIELD(TB_FLAGS_ANY, HLSX, 15, 1)
 /* The combination of MXL/SXL/UXL that applies to the current cpu mode. */
-FIELD(TB_FLAGS, XL, 16, 2)
-FIELD(TB_FLAGS, BF16, 24, 1)
+FIELD(TB_FLAGS_ANY, XL, 16, 2)
+
+FIELD(TB_FLAGS_THEAD, PWI32, 0, 1)
+FIELD(TB_FLAGS_THEAD, PWI64, 1, 1)
+FIELD(TB_FLAGS_THEAD, I4I32, 2, 1)
+FIELD(TB_FLAGS_THEAD, I8I32, 3, 1)
+FIELD(TB_FLAGS_THEAD, I16I64, 4, 1)
+FIELD(TB_FLAGS_THEAD, F16F16, 5, 1)
+FIELD(TB_FLAGS_THEAD, F32F32, 6, 1)
+FIELD(TB_FLAGS_THEAD, F64F64, 7, 1)
+FIELD(TB_FLAGS_THEAD, MS, 8, 2)
+FIELD(TB_FLAGS_THEAD, MILL, 10, 1)
+FIELD(TB_FLAGS_THEAD, NILL, 11, 1)
+FIELD(TB_FLAGS_THEAD, KILL, 12, 1)
+FIELD(TB_FLAGS_THEAD, NPILL, 13, 1)
+FIELD(TB_FLAGS_THEAD, BF16, 20, 1)
+
+/*
+ * Helpers for using the above.
+ */
+#define DP_TBFLAGS_ANY(DST, WHICH, VAL) \
+    (DST.flags = FIELD_DP32(DST.flags, TB_FLAGS_ANY, WHICH, VAL))
+#define DP_TBFLAGS_THEAD(DST, WHICH, VAL) \
+    (DST.flags2 = FIELD_DP32(DST.flags2, TB_FLAGS_THEAD, WHICH, VAL))
+
+#define EX_TBFLAGS_ANY(IN, WHICH)   FIELD_EX32(IN.flags, TB_FLAGS_ANY, WHICH)
+#define EX_TBFLAGS_THEAD(IN, WHICH) FIELD_EX32(IN.flags2, TB_FLAGS_THEAD, WHICH)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)

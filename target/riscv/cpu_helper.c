@@ -26,6 +26,7 @@
 #include "tcg/tcg-op.h"
 #include "trace.h"
 #include "semihosting/common-semi.h"
+#include "internals.h"
 
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/intc/riscv_clic.h"
@@ -74,7 +75,7 @@ RISCVMXL cpu_get_xl(CPURISCVState *env)
 void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
                           target_ulong *cs_base, uint32_t *pflags)
 {
-    uint32_t flags = 0;
+    CPURISCVTBFlags flags = {0, 0};
 
     *pc = cpu_get_xl(env) == MXL_RV32 ? env->pc & UINT32_MAX : env->pc;
     *cs_base = 0;
@@ -93,12 +94,9 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
         if (env->vext_ver == VEXT_VERSION_0_07_1) {
             vlmax = vext_get_vlmax_7(env_archcpu(env), env->vtype);
             vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl);
-            flags = FIELD_DP32(flags, TB_FLAGS, VILL,
-                               FIELD_EX64(env->vtype, VTYPE_7, VILL));
-            flags = FIELD_DP32(flags, TB_FLAGS, SEW,
-                               FIELD_EX64(env->vtype, VTYPE_7, VSEW));
-            flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
-                               FIELD_EX64(env->vtype, VTYPE_7, VLMUL));
+            DP_TBFLAGS_ANY(flags, VILL, FIELD_EX64(env->vtype, VTYPE_7, VILL));
+            DP_TBFLAGS_ANY(flags, SEW, FIELD_EX64(env->vtype, VTYPE_7, VSEW));
+            DP_TBFLAGS_ANY(flags, LMUL, FIELD_EX64(env->vtype, VTYPE_7, VLMUL));
         } else {
             uint32_t sew = FIELD_EX64(env->vtype, VTYPE, VSEW);
             uint32_t maxsz;
@@ -106,24 +104,41 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
             maxsz = vlmax << sew;
             vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl)
                           && (maxsz >= 8);
-            flags = FIELD_DP32(flags, TB_FLAGS, VILL,
-                        FIELD_EX64(env->vtype, VTYPE, VILL));
-            flags = FIELD_DP32(flags, TB_FLAGS, SEW, sew);
-            flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
-                        FIELD_EX64(env->vtype, VTYPE, VLMUL));
+            DP_TBFLAGS_ANY(flags, VILL, FIELD_EX64(env->vtype, VTYPE, VILL));
+            DP_TBFLAGS_ANY(flags, SEW, sew);
+            DP_TBFLAGS_ANY(flags, LMUL, FIELD_EX64(env->vtype, VTYPE, VLMUL));
         }
-        flags = FIELD_DP32(flags, TB_FLAGS, VL_EQ_VLMAX, vl_eq_vlmax);
+        DP_TBFLAGS_ANY(flags, VL_EQ_VLMAX, vl_eq_vlmax);
     } else {
-        flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
+        DP_TBFLAGS_ANY(flags, VILL, 1);
     }
 
+    if (env_archcpu(env)->cfg.ext_matrix) {
+        DP_TBFLAGS_THEAD(flags, PWI32, !!(env->xmisa & MATRIX_PW_I32));
+        DP_TBFLAGS_THEAD(flags, PWI64, !!(env->xmisa & MATRIX_PW_I64));
+        DP_TBFLAGS_THEAD(flags, I4I32, !!(env->xmisa & MATRIX_MULT_I4I32));
+        DP_TBFLAGS_THEAD(flags, I8I32, !!(env->xmisa & MATRIX_MULT_I8I32));
+        DP_TBFLAGS_THEAD(flags, I16I64, !!(env->xmisa & MATRIX_MULT_I16I64));
+        DP_TBFLAGS_THEAD(flags, F16F16, !!(env->xmisa & MATRIX_MULT_F16F16));
+        DP_TBFLAGS_THEAD(flags, F32F32, !!(env->xmisa & MATRIX_MULT_F32F32));
+        DP_TBFLAGS_THEAD(flags, F64F64, !!(env->xmisa & MATRIX_MULT_F64F64));
+        DP_TBFLAGS_THEAD(flags, MILL,
+                         env->sizem > get_mrows(env) || env->sizem == 0);
+        DP_TBFLAGS_THEAD(flags, NILL,
+                         env->sizen > get_mrows(env) || env->sizen == 0);
+        DP_TBFLAGS_THEAD(flags, KILL,
+                         env->sizek > get_mlenb(env) || env->sizek == 0);
+        DP_TBFLAGS_THEAD(flags, NPILL,
+                         env->sizen > 2 * get_mrows(env) || env->sizen == 0);
+    }
 #ifdef CONFIG_USER_ONLY
-    flags |= TB_FLAGS_MSTATUS_FS;
-    flags |= TB_FLAGS_MSTATUS_VS;
+    flags.flags |= TB_FLAGS_ANY_MSTATUS_FS;
+    flags.flags |= TB_FLAGS_ANY_MSTATUS_VS;
+    DP_TBFLAGS_THEAD(flags, MS, MCSR_MS);
 #else
-    flags |= cpu_mmu_index(env, 0);
+    flags.flags |= cpu_mmu_index(env, 0);
     if (riscv_cpu_fp_enabled(env)) {
-        flags |= env->mstatus & MSTATUS_FS;
+        flags.flags |= env->mstatus & MSTATUS_FS;
     }
 
     if (riscv_has_ext(env, RVH)) {
@@ -131,20 +146,24 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
             (env->priv == PRV_S && !riscv_cpu_virt_enabled(env)) ||
             (env->priv == PRV_U && !riscv_cpu_virt_enabled(env) &&
                 get_field(env->hstatus, HSTATUS_HU))) {
-            flags = FIELD_DP32(flags, TB_FLAGS, HLSX, 1);
+            DP_TBFLAGS_ANY(flags, HLSX, 1);
         }
     }
     if (riscv_cpu_vector_enabled(env)) {
-        flags |= env->mstatus & MSTATUS_VS;
+        flags.flags |= env->mstatus & MSTATUS_VS;
+    }
+    if (riscv_cpu_matrix_enabled(env)) {
+        DP_TBFLAGS_THEAD(flags, MS, env->mcsr & MCSR_MS);
     }
 #endif
 
     if (riscv_has_ext(env, RVXTHEAD)) { /* Todo: a formal name for half float */
-        flags = FIELD_DP32(flags, TB_FLAGS, BF16, env->bf16);
+        DP_TBFLAGS_THEAD(flags, BF16, env->bf16);
     }
-    flags = FIELD_DP32(flags, TB_FLAGS, XL, cpu_get_xl(env));
+    DP_TBFLAGS_ANY(flags, XL, cpu_get_xl(env));
 
-    *pflags = flags;
+    *pflags = flags.flags;
+    *cs_base = flags.flags2;
 }
 
 #ifndef CONFIG_USER_ONLY
@@ -261,6 +280,12 @@ bool riscv_cpu_vector_enabled(CPURISCVState *env)
     return false;
 }
 
+/* Return true is matrix support is currently enabled */
+bool riscv_cpu_matrix_enabled(CPURISCVState *env)
+{
+    return env->mcsr & MCSR_MS;
+}
+
 void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env)
 {
     uint64_t mstatus_mask = MSTATUS_MXR | MSTATUS_SUM | MSTATUS_FS |
@@ -362,7 +387,7 @@ void riscv_cpu_set_force_hs_excep(CPURISCVState *env, bool enable)
 
 bool riscv_cpu_two_stage_lookup(int mmu_idx)
 {
-    return mmu_idx & TB_FLAGS_PRIV_HYP_ACCESS_MASK;
+    return mmu_idx & TB_FLAGS_ANY_PRIV_HYP_ACCESS_MASK;
 }
 
 int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint32_t interrupts)
@@ -510,7 +535,7 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
      * (riscv_cpu_do_interrupt) is correct */
     MemTxResult res;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
-    int mode = mmu_idx & TB_FLAGS_PRIV_MMU_MASK;
+    int mode = mmu_idx & TB_FLAGS_ANY_PRIV_MMU_MASK;
     bool use_background = false;
     hwaddr ppn;
     RISCVCPU *cpu = env_archcpu(env);

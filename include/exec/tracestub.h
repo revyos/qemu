@@ -42,10 +42,14 @@
 #define TRACE_EXCP_PUSH         0x35
 #define TRACE_EXCP_POP          0x36
 #define DATA_INST_OFFSET        0x37
+#define INST_VECTOR_FACTOR      0x38
+#define INST_VECTOR_LMUL        0x39
 #define DATA_RADDR              0x40
 #define DATA_WADDR              0x41
 #define DATA_VALUE              0x42
 #define DEVICE_EVENT            0x49
+#define DATA_SRADDR             0x53
+#define DATA_SWADDR             0x54
 #define DATA_SEG                0x60
 #define TRACE_COMPRESS          0x82
 #define SYN_START               ((0x00 << 8) | 0x02)
@@ -86,6 +90,8 @@
 #define TRACE_EVENT_INSN        (0x1 << 0)
 #define TRACE_EVENT_DATA        (0x1 << 1)
 #define TRACE_EVENT_GDB         (0x1 << 22)
+#define TRACE_EVENT_X_VF        (0x1 << 23)
+#define TRACE_EVENT_X_LMUL      (0x1 << 24)
 
 #define MAX_ADDR_CMPR_NUM       2
 #define MAX_DATA_CMPR_NUM       2
@@ -107,6 +113,8 @@
 #define CSKY_TRACE              (0x1 << 0)
 #define TB_TRACE                (0x1 << 1)
 #define MEM_TRACE               (0x1 << 2)
+#define X_VF_TRACE              (0x1 << 3)
+#define X_LMUL_TRACE            (0x1 << 4)
 
 
 enum mem_ldst_type {
@@ -196,6 +204,8 @@ int traceserver_start(const char *device);
 void trace_exit_notify(void);
 bool gen_mem_trace(void);
 bool gen_tb_trace(void);
+bool gen_x_vf_trace(void);
+bool gen_x_lmul_trace(void);
 void trace_buf_clear(void);
 void trace_buf_alloc(bool sync);
 void write_trace_header(uint32_t config);

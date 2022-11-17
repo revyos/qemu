@@ -1,7 +1,7 @@
 SRC = $(wildcard *.c)
 SRS = $(wildcard *.S)
 OBJFILE = $(SRS:%.S=%.o) $(SRC:%.c=%.o)
-CFLAGS = -g2 -static -march=rv64gcvxthead
+CFLAGS = -g2 -static -march=rv64gcv0p7_xtheadc
 TARGET_CROSS = riscv64-unknown-linux-gnu
 CC = $(TARGET_CROSS)-gcc
 INCLUDE = -I../../include -I.

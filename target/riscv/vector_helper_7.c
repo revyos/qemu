@@ -24,6 +24,7 @@
 #include "fpu/softfloat.h"
 #include "tcg/tcg-gvec-desc.h"
 #include "internals.h"
+#include "exec/tracestub.h"
 #include <math.h>
 
 target_ulong HELPER(vsetvl_7)(CPURISCVState *env, target_ulong s1,
@@ -31,6 +32,7 @@ target_ulong HELPER(vsetvl_7)(CPURISCVState *env, target_ulong s1,
 {
     int vlmax, vl;
     RISCVCPU *cpu = env_archcpu(env);
+    uint64_t lmul = FIELD_EX64(s2, VTYPE_7, VLMUL);
     uint16_t sew = 8 << FIELD_EX64(s2, VTYPE_7, VSEW);
     uint8_t ediv = FIELD_EX64(s2, VTYPE_7, VEDIV);
     bool vill;
@@ -65,6 +67,9 @@ target_ulong HELPER(vsetvl_7)(CPURISCVState *env, target_ulong s1,
     env->vl = vl;
     env->vtype = s2;
     env->vstart = 0;
+    if (gen_x_lmul_trace()) {
+        write_trace_8(INST_VECTOR_LMUL, sizeof(uint32_t), lmul);
+    }
     return vl;
 }
 
@@ -2423,34 +2428,6 @@ GEN_VEXT_VX_RM(vssub_vx_7_b, 1, 1, clearb_7)
 GEN_VEXT_VX_RM(vssub_vx_7_h, 2, 2, clearh_7)
 GEN_VEXT_VX_RM(vssub_vx_7_w, 4, 4, clearl_7)
 GEN_VEXT_VX_RM(vssub_vx_7_d, 8, 8, clearq_7)
-
-/* Vector Single-Width Averaging Add and Subtract */
-static inline uint8_t get_round(int vxrm, uint64_t v, uint8_t shift)
-{
-    uint8_t d = extract64(v, shift, 1);
-    uint8_t d1;
-    uint64_t D1, D2;
-
-    if (shift == 0 || shift > 64) {
-        return 0;
-    }
-
-    d1 = extract64(v, shift - 1, 1);
-    D1 = extract64(v, 0, shift);
-    if (vxrm == 0) { /* round-to-nearest-up (add +0.5 LSB) */
-        return d1;
-    } else if (vxrm == 1) { /* round-to-nearest-even */
-        if (shift > 1) {
-            D2 = extract64(v, 0, shift - 1);
-            return d1 & ((D2 != 0) | d);
-        } else {
-            return d1 & d;
-        }
-    } else if (vxrm == 3) { /* round-to-odd (OR bits into LSB, aka "jam") */
-        return !d & (D1 != 0);
-    }
-    return 0; /* round-down (truncate) */
-}
 
 static inline int32_t aadd32(CPURISCVState *env, int vxrm, int32_t a, int32_t b)
 {

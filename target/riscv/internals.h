@@ -107,6 +107,21 @@ static inline bfloat16 check_nanbox_bh(uint64_t f)
     }
 }
 
+static inline target_ulong get_mlenb(CPURISCVState *env)
+{
+    return env_archcpu(env)->cfg.matlen >> 3;
+}
+
+static inline target_ulong get_mrows(CPURISCVState *env)
+{
+    return env_archcpu(env)->cfg.matlen / RV_MACC_LEN;
+}
+
+static inline target_ulong get_mregsize(CPURISCVState *env)
+{
+    return get_mrows(env) * get_mlenb(env);
+}
+
 /*
  * Note that vector data is stored in host-endian 64-bit chunks,
  * so addressing units smaller than that needs a host-endian fixup.
@@ -146,6 +161,9 @@ static inline bfloat16 check_nanbox_bh(uint64_t f)
 #define H4(x)   (x)
 #define H8(x)   (x)
 #endif
+
+/* rounding incremental calculation */
+uint8_t get_round(int rm, uint64_t v, uint8_t shift);
 
 /* share functions about saturation */
 int8_t sadd8(CPURISCVState *, int vxrm, int8_t, int8_t);

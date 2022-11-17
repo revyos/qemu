@@ -35,11 +35,23 @@
 
 /* global register indices */
 static TCGv cpu_gpr[32], cpu_pc, cpu_vl, cpu_vstart;
+static TCGv sizem, sizen, sizek;
 static TCGv_i64 cpu_fpr[32]; /* assume F and D extensions */
 static TCGv load_res;
 static TCGv load_val;
 
 #include "exec/gen-icount.h"
+
+/**
+ * riscv_tbflags_from_tb:
+ * @tb: the TranslationBlock
+ *
+ * Extract the flag values from @tb.
+ */
+static inline CPURISCVTBFlags riscv_tbflags_from_tb(const TranslationBlock *tb)
+{
+    return (CPURISCVTBFlags){ tb->flags, tb->cs_base };
+}
 
 /*
  * If an operation is being performed on less than TARGET_LONG_BITS,
@@ -63,6 +75,7 @@ typedef struct DisasContext {
     uint32_t opcode;
     uint32_t mstatus_fs;
     uint32_t mstatus_vs;
+    uint32_t mcsr_ms;
     uint32_t mem_idx;
     /* Remember the rounding mode encoded in the previous fp instruction,
        which we have already installed into env->fp_status.  Or -1 for
@@ -93,8 +106,21 @@ typedef struct DisasContext {
      */
     int8_t lmul;
     uint8_t sew;
+    bool pwi32;
+    bool pwi64;
+    bool i4i32;
+    bool i8i32;
+    bool i16i64;
+    bool f16f16;
+    bool f32f32;
+    bool f64f64;
+    bool mill;
+    bool nill;
+    bool kill;
+    bool npill;
     uint16_t vlen;
     uint16_t mlen;
+    uint16_t matlen;
     target_ulong vstart;
     bool vl_eq_vlmax;
     uint8_t ntemp;
@@ -505,6 +531,11 @@ static int ex_plus_1(DisasContext *ctx, int nf)
     return nf + 1;
 }
 
+static int ex_plus_8(DisasContext *ctx, int rs)
+{
+    return rs + 8;
+}
+
 #define EX_SH(amount) \
     static int ex_shift_##amount(DisasContext *ctx, int imm) \
     {                                         \
@@ -803,6 +834,7 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 #include "insn_trans/trans_privileged.c.inc"
 #include "insn_trans/trans_svinval.c.inc"
 #include "insn_trans/trans_xthead.inc.c"
+#include "insn_trans/trans_rvmm.c.inc"
 
 /* Include the auto-generated decoder for 16 bit insn */
 #include "decode-insn16.c.inc"
@@ -840,12 +872,13 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
     CPURISCVState *env = cs->env_ptr;
     RISCVCPU *cpu = RISCV_CPU(cs);
-    uint32_t tb_flags = ctx->base.tb->flags;
+    CPURISCVTBFlags tb_flags = riscv_tbflags_from_tb(dcbase->tb);
 
     ctx->pc_succ_insn = ctx->base.pc_first;
-    ctx->mem_idx = FIELD_EX32(tb_flags, TB_FLAGS, MEM_IDX);
-    ctx->mstatus_fs = tb_flags & TB_FLAGS_MSTATUS_FS;
-    ctx->mstatus_vs = tb_flags & TB_FLAGS_MSTATUS_VS;
+    ctx->mem_idx = EX_TBFLAGS_ANY(tb_flags, MEM_IDX);
+    ctx->mstatus_fs = tb_flags.flags & TB_FLAGS_ANY_MSTATUS_FS;
+    ctx->mstatus_vs = tb_flags.flags & TB_FLAGS_ANY_MSTATUS_VS;
+    ctx->mcsr_ms = EX_TBFLAGS_THEAD(tb_flags, MS);
     ctx->priv_ver = env->priv_ver;
     ctx->vext_ver = env->vext_ver;
 #if !defined(CONFIG_USER_ONLY)
@@ -861,21 +894,34 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->frm = -1;  /* unknown rounding mode */
     ctx->ext_ifencei = cpu->cfg.ext_ifencei;
     ctx->vlen = cpu->cfg.vlen;
-    ctx->hlsx = FIELD_EX32(tb_flags, TB_FLAGS, HLSX);
-    ctx->vill = FIELD_EX32(tb_flags, TB_FLAGS, VILL);
-    ctx->sew = FIELD_EX32(tb_flags, TB_FLAGS, SEW);
+    ctx->matlen = cpu->cfg.matlen;
+    ctx->hlsx = EX_TBFLAGS_ANY(tb_flags, HLSX);
+    ctx->vill = EX_TBFLAGS_ANY(tb_flags, VILL);
+    ctx->sew = EX_TBFLAGS_ANY(tb_flags, SEW);
     if (ctx->vext_ver == VEXT_VERSION_0_07_1) {
-        ctx->lmul = FIELD_EX32(tb_flags, TB_FLAGS, LMUL);
+        ctx->lmul = EX_TBFLAGS_ANY(tb_flags, LMUL);
         ctx->mlen = 1 << (ctx->sew  + 3 - ctx->lmul);
     } else {
-        ctx->lmul = sextract32(FIELD_EX32(tb_flags, TB_FLAGS, LMUL), 0, 3);
+        ctx->lmul = sextract32(EX_TBFLAGS_ANY(tb_flags, LMUL), 0, 3);
         ctx->mlen = 1;
     }
     ctx->vstart = env->vstart;
-    ctx->vl_eq_vlmax = FIELD_EX32(tb_flags, TB_FLAGS, VL_EQ_VLMAX);
+    ctx->vl_eq_vlmax = EX_TBFLAGS_ANY(tb_flags, VL_EQ_VLMAX);
     ctx->ext_psfoperand = cpu->cfg.ext_psfoperand;
-    ctx->xl = FIELD_EX32(tb_flags, TB_FLAGS, XL);
-    ctx->bf16 = FIELD_EX32(tb_flags, TB_FLAGS, BF16);
+    ctx->xl = EX_TBFLAGS_ANY(tb_flags, XL);
+    ctx->bf16 = EX_TBFLAGS_THEAD(tb_flags, BF16);
+    ctx->pwi32 = EX_TBFLAGS_THEAD(tb_flags, PWI32);
+    ctx->pwi64 = EX_TBFLAGS_THEAD(tb_flags, PWI64);
+    ctx->i4i32 = EX_TBFLAGS_THEAD(tb_flags, I4I32);
+    ctx->i8i32 = EX_TBFLAGS_THEAD(tb_flags, I8I32);
+    ctx->i16i64 = EX_TBFLAGS_THEAD(tb_flags, I16I64);
+    ctx->f16f16 = EX_TBFLAGS_THEAD(tb_flags, F16F16);
+    ctx->f32f32 = EX_TBFLAGS_THEAD(tb_flags, F32F32);
+    ctx->f64f64 = EX_TBFLAGS_THEAD(tb_flags, F64F64);
+    ctx->mill = EX_TBFLAGS_THEAD(tb_flags, MILL);
+    ctx->nill = EX_TBFLAGS_THEAD(tb_flags, NILL);
+    ctx->kill = EX_TBFLAGS_THEAD(tb_flags, KILL);
+    ctx->npill = EX_TBFLAGS_THEAD(tb_flags, NPILL);
     ctx->cs = cs;
     ctx->ntemp = 0;
     memset(ctx->temp, 0, sizeof(ctx->temp));
@@ -1042,6 +1088,9 @@ void riscv_translate_init(void)
 
     cpu_pc = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, pc), "pc");
     cpu_vl = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, vl), "vl");
+    sizem = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizem), "sizem");
+    sizen = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizen), "sizen");
+    sizek = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizek), "sizek");
     cpu_vstart = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, vstart),
                             "vstart");
     load_res = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, load_res),

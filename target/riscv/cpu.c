@@ -769,6 +769,16 @@ static void riscv_cpu_reset(DeviceState *dev)
     env->pc = env->resetvec;
     env->two_stage_lookup = false;
 #endif
+    if (cpu->cfg.ext_matrix) {
+            env->xmisa = MATRIX_MULT_F16F16
+                         | MATRIX_MULT_F32F32
+                         | MATRIX_MULT_F64F64
+                         | MATRIX_MULT_I16I64
+                         | MATRIX_MULT_I4I32
+                         | MATRIX_PW_I32
+                         | MATRIX_PW_I64
+                         | MATRIX_MULT_I8I32;
+    }
     cs->exception_index = RISCV_EXCP_NONE;
     env->load_res = -1;
     set_default_nan_mode(1, &env->fp_status);
@@ -933,6 +943,14 @@ static void riscv_cpu_realize(DeviceState *dev, Error **errp)
         if (cpu->cfg.ext_thead) {
             ext |= RVXTHEAD;
         }
+        if (cpu->cfg.ext_matrix) {
+            if (cpu->cfg.matlen > RV_MLEN_MAX || cpu->cfg.matlen < 128) {
+                error_setg(errp,
+                        "Matrix extension implementation only supports MLEN "
+                        "in the range [128, %d]", RV_MLEN_MAX);
+                return;
+            }
+        }
         if (cpu->cfg.ext_v) {
             int vext_version = VEXT_VERSION_1_00_0;
             ext |= RVV;
@@ -1031,6 +1049,7 @@ static Property riscv_cpu_properties[] = {
     DEFINE_PROP_BOOL("s", RISCVCPU, cfg.ext_s, true),
     DEFINE_PROP_BOOL("u", RISCVCPU, cfg.ext_u, true),
     DEFINE_PROP_BOOL("x-thead", RISCVCPU, cfg.ext_thead, true),
+    DEFINE_PROP_BOOL("x-matrix", RISCVCPU, cfg.ext_matrix, false),
     /* This is experimental so mark with 'x-' */
     DEFINE_PROP_BOOL("x-zba", RISCVCPU, cfg.ext_zba, false),
     DEFINE_PROP_BOOL("x-zbb", RISCVCPU, cfg.ext_zbb, false),
@@ -1049,10 +1068,12 @@ static Property riscv_cpu_properties[] = {
     DEFINE_PROP_STRING("pext_spec", RISCVCPU, cfg.pext_spec),
     DEFINE_PROP_STRING("vext_spec", RISCVCPU, cfg.vext_spec),
     DEFINE_PROP_UINT16("vlen", RISCVCPU, cfg.vlen, 128),
+    DEFINE_PROP_UINT16("mlen", RISCVCPU, cfg.matlen, 128),
     DEFINE_PROP_UINT16("elen", RISCVCPU, cfg.elen, 64),
     DEFINE_PROP_BOOL("svinval", RISCVCPU, cfg.ext_svinval, false),
     DEFINE_PROP_BOOL("svnapot", RISCVCPU, cfg.ext_svnapot, false),
     DEFINE_PROP_BOOL("svpbmt", RISCVCPU, cfg.ext_svpbmt, false),
+    DEFINE_PROP_UINT16("datapath", RISCVCPU, cfg.datapath, 256),
     DEFINE_PROP_BOOL("Zpsfoperand", RISCVCPU, cfg.ext_psfoperand, true),
     DEFINE_PROP_BOOL("mmu", RISCVCPU, cfg.mmu, true),
     DEFINE_PROP_BOOL("pmp", RISCVCPU, cfg.pmp, true),
@@ -1087,6 +1108,8 @@ static const char *riscv_gdb_get_dynamic_xml(CPUState *cs, const char *xmlname)
         return cpu->dyn_csr_xml;
     } else if (strcmp(xmlname, "riscv-vector.xml") == 0) {
         return cpu->dyn_vreg_xml;
+    } else if (strcmp(xmlname, "riscv-matrix.xml") == 0) {
+        return cpu->dyn_mreg_xml;
     }
 
     return NULL;

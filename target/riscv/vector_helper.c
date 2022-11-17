@@ -26,6 +26,7 @@
 #include "fpu/softfloat.h"
 #include "tcg/tcg-gvec-desc.h"
 #include "internals.h"
+#include "exec/tracestub.h"
 #include <math.h>
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
@@ -80,6 +81,13 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     env->vl = vl;
     env->vtype = s2;
     env->vstart = 0;
+    if (gen_x_lmul_trace()) {
+        write_trace_8(INST_VECTOR_LMUL, sizeof(uint32_t), lmul);
+    }
+    if (gen_x_vf_trace()) {
+        write_trace_8(INST_VECTOR_FACTOR, sizeof(uint32_t),
+                      MAX(vl * sew / cpu->cfg.datapath, 1));
+    }
     return vl;
 }
 
@@ -2489,7 +2497,7 @@ GEN_VEXT_VX_RM(vssub_vx_w, 4, 4)
 GEN_VEXT_VX_RM(vssub_vx_d, 8, 8)
 
 /* Vector Single-Width Averaging Add and Subtract */
-static inline uint8_t get_round(int vxrm, uint64_t v, uint8_t shift)
+uint8_t get_round(int vxrm, uint64_t v, uint8_t shift)
 {
     uint8_t d = extract64(v, shift, 1);
     uint8_t d1;

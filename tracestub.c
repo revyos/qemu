@@ -45,6 +45,14 @@ QemuOptsList qemu_csky_trace_opts = {
             .type = QEMU_OPT_BOOL,
             .help = "trace ld/st or not",
         },{
+            .name = "x_vf_trace",
+            .type = QEMU_OPT_BOOL,
+            .help = "trace experiment vector factor",
+        },{
+            .name = "x_lmul_trace",
+            .type = QEMU_OPT_BOOL,
+            .help = "trace experiment vector lmul",
+        },{
             .name = "auto_trace",
             .type = QEMU_OPT_BOOL,
             .help = "auto gen trace or not",
@@ -91,11 +99,15 @@ void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid)
         cs->csky_trace_features |= CSKY_TRACE;
         cs->csky_trace_features |= TB_TRACE;
         cs->csky_trace_features |= MEM_TRACE;
+        cs->csky_trace_features |= X_VF_TRACE;
+        cs->csky_trace_features |= X_LMUL_TRACE;
 
         tfilter.enable = true;
         tfilter.cpuid = cpuid;
         tfilter.event |= TRACE_EVENT_INSN;
         tfilter.event |= TRACE_EVENT_DATA;
+        tfilter.event |= TRACE_EVENT_X_VF;
+        tfilter.event |= TRACE_EVENT_X_LMUL;
         b = qemu_opt_get_bool(opts, "tb_trace", true);
         if (!b) {
             tfilter.event &= ~TRACE_EVENT_INSN;
@@ -103,6 +115,14 @@ void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid)
         b = qemu_opt_get_bool(opts, "mem_trace", true);
         if (!b) {
             tfilter.event &= ~TRACE_EVENT_DATA;
+        }
+        b = qemu_opt_get_bool(opts, "x_vf_trace", false);
+        if (!b) {
+            tfilter.event &= ~TRACE_EVENT_X_VF;
+        }
+        b = qemu_opt_get_bool(opts, "x_lmul_trace", false);
+        if (!b) {
+            tfilter.event &= ~TRACE_EVENT_X_LMUL;
         }
         b = qemu_opt_get_bool(opts, "auto_trace", true);
         if (!b) {

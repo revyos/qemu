@@ -39,7 +39,7 @@
 #include "compile_gen.h"
 
 
-#define CSKYSIM_VERSION "cskysim v3.8.30 (QEMU V6.1.0)"
+#define CSKYSIM_VERSION "cskysim v3.8.31 (QEMU V6.1.0)"
 #define XML_MINVER      0.0
 #define XML_MAXVER      2.0
 
