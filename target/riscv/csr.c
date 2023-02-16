@@ -953,6 +953,12 @@ static RISCVException write_mcounteren(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException write_mcountinhibit(CPURISCVState *env, int csrno,
+                                          target_ulong val)
+{
+    return RISCV_EXCP_NONE;
+}
+
 /* Machine Trap Handling */
 static RISCVException read_mscratch(CPURISCVState *env, int csrno,
                                     target_ulong *val)
@@ -2479,6 +2485,7 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_MIE]         = { "mie",        any,   read_mie,         write_mie         },
     [CSR_MTVEC]       = { "mtvec",      any,   read_mtvec,       write_mtvec       },
     [CSR_MCOUNTEREN]  = { "mcounteren", any,   read_mcounteren,  write_mcounteren  },
+    [CSR_MCOUNTINHIBIT]  = { "mcountinhibit", any,   read_zero,     write_mcountinhibit  },
 
     [CSR_MSTATUSH]    = { "mstatush",   any32, read_mstatush,    write_mstatush    },
 
