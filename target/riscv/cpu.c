@@ -768,6 +768,7 @@ static void riscv_cpu_reset(DeviceState *dev)
     env->mcause = 0;
     env->pc = env->resetvec;
     env->two_stage_lookup = false;
+    env->mstatus = set_field(env->mstatus, MSTATUS_MPP, 3);
 #endif
     cs->exception_index = RISCV_EXCP_NONE;
     env->load_res = -1;
