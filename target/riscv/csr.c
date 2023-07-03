@@ -387,12 +387,13 @@ static RISCVException write_vstart(CPURISCVState *env, int csrno,
                                    target_ulong val)
 {
 #if !defined(CONFIG_USER_ONLY)
-    if (!env->debugger && !riscv_cpu_vector_enabled(env)) {
-        return -RISCV_EXCP_ILLEGAL_INST;
+    if (env->vext_ver == VEXT_VERSION_1_00_0) {
+        if (!env->debugger && !riscv_cpu_vector_enabled(env)) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+        env->mstatus |= MSTATUS_VS;
     }
-    env->mstatus |= MSTATUS_VS;
 #endif
-
     /*
      * The vstart CSR is defined to have only enough writable bits
      * to hold the largest element index, i.e. lg2(VLEN) bits.
@@ -410,7 +411,9 @@ static int read_vcsr(CPURISCVState *env, int csrno, target_ulong *val)
 static int write_vcsr(CPURISCVState *env, int csrno, target_ulong val)
 {
 #if !defined(CONFIG_USER_ONLY)
-    env->mstatus |= MSTATUS_VS;
+    if (env->vext_ver == VEXT_VERSION_1_00_0) {
+        env->mstatus |= MSTATUS_VS;
+    }
 #endif
 
     env->vxrm = (val & VCSR_VXRM) >> VCSR_VXRM_SHIFT;
@@ -677,6 +680,8 @@ static uint64_t add_status_sd(CPURISCVState *env, RISCVMXL xl, uint64_t status)
         if ((status & MSTATUS_VS) == MSTATUS_VS) {
             vs_dirty = true;
         }
+    } else if (env->vext_ver == VEXT_VERSION_0_07_1) {
+        vs_dirty = true;
     }
     if (vs_dirty || (status & MSTATUS_FS) == MSTATUS_FS ||
         (status & MSTATUS_XS) == MSTATUS_XS) {
@@ -695,7 +700,11 @@ static uint64_t add_status_sd(CPURISCVState *env, RISCVMXL xl, uint64_t status)
 static RISCVException read_mstatus(CPURISCVState *env, int csrno,
                                    target_ulong *val)
 {
-    *val = add_status_sd(env, riscv_cpu_mxl(env), env->mstatus);
+    uint64_t status = env->mstatus;
+    if (env->vext_ver == VEXT_VERSION_0_07_1) {
+        status = env->mstatus | MSTATUS_VS_V0P7;
+    }
+    *val = add_status_sd(env, riscv_cpu_mxl(env), status);
     return RISCV_EXCP_NONE;
 }
 
@@ -1572,15 +1581,21 @@ static int read_cpuid(CPURISCVState *env, int csrno, target_ulong *val)
 static RISCVException read_sstatus(CPURISCVState *env, int csrno,
                                    target_ulong *val)
 {
+    uint64_t status = env->mstatus;
     target_ulong mask = (sstatus_v1_10_mask);
+    if (env->vext_ver == VEXT_VERSION_0_07_1) {
+        status = env->mstatus | MSTATUS_VS_V0P7;
+    }
     if (env->vext_ver == VEXT_VERSION_1_00_0) {
         mask |= SSTATUS_VS;
+    } else if (env->vext_ver == VEXT_VERSION_0_07_1) {
+        mask |= MSTATUS_VS_V0P7;
     }
     if (cpu_get_xl(env) != MXL_RV32 || env->debugger) {
         mask |= SSTATUS64_UXL;
     }
     /* TODO: Use SXL not MXL. */
-    *val = add_status_sd(env, riscv_cpu_mxl(env), env->mstatus & mask);
+    *val = add_status_sd(env, riscv_cpu_mxl(env), status & mask);
     return RISCV_EXCP_NONE;
 }
 

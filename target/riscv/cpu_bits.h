@@ -489,6 +489,7 @@
 #define MSTATUS_MPIE        0x00000080
 #define MSTATUS_SPP         0x00000100
 #define MSTATUS_VS          0x00000600
+#define MSTATUS_VS_V0P7     0x01800000
 #define MSTATUS_MPP         0x00001800
 #define MSTATUS_FS          0x00006000
 #define MSTATUS_XS          0x00018000

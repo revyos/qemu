@@ -845,7 +845,9 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->pc_succ_insn = ctx->base.pc_first;
     ctx->mem_idx = FIELD_EX32(tb_flags, TB_FLAGS, MEM_IDX);
     ctx->mstatus_fs = tb_flags & TB_FLAGS_MSTATUS_FS;
-    ctx->mstatus_vs = tb_flags & TB_FLAGS_MSTATUS_VS;
+    if (env->vext_ver == VEXT_VERSION_1_00_0) {
+        ctx->mstatus_vs = tb_flags & TB_FLAGS_MSTATUS_VS;
+    }
     ctx->priv_ver = env->priv_ver;
     ctx->vext_ver = env->vext_ver;
 #if !defined(CONFIG_USER_ONLY)
