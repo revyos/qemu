@@ -539,18 +539,15 @@ target_ulong helper_flt_h(CPURISCVState *env, uint64_t rs1, uint64_t rs2)
 
 target_ulong helper_feq_h(CPURISCVState *env, uint64_t rs1, uint64_t rs2)
 {
-    FloatRelation r;
     if (env->bf16) {
         bfloat16 frs1 = check_nanbox_bh(rs1);
         bfloat16 frs2 = check_nanbox_bh(rs2);
-        r = bfloat16_compare(frs1, frs2, &env->fp_status);
+        return bfloat16_eq_quiet(frs1, frs2, &env->fp_status);
     } else {
         float16 frs1 = check_nanbox_h(rs1);
         float16 frs2 = check_nanbox_h(rs2);
-        r = float16_compare(frs1, frs2, &env->fp_status);
+        return float16_eq_quiet(frs1, frs2, &env->fp_status);
     }
-
-    return r == float_relation_equal;
 }
 
 target_ulong helper_fcvt_w_h(CPURISCVState *env, uint64_t rs1)
