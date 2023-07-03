@@ -340,8 +340,8 @@ type_init(sifive_clint_register_types)
  */
 DeviceState *sifive_clint_create(hwaddr addr, hwaddr size,
     uint32_t hartid_base, uint32_t num_harts, uint32_t sip_base,
-    uint32_t ssip_base, uint32_t timecmp_base, uint32_t time_base,
-    uint32_t stimecmp_base, uint32_t timebase_freq, bool provide_rdtime)
+    uint32_t ssip_base, uint32_t timecmp_base, uint32_t stimecmp_base,
+    uint32_t time_base, uint32_t timebase_freq, bool provide_rdtime)
 {
     int i;
     for (i = 0; i < num_harts; i++) {
