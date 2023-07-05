@@ -744,7 +744,7 @@ static bool r4_ool(DisasContext *ctx, arg_r4 *a, DisasExtend ext,
     src1 = get_gpr(ctx, a->rs1, ext);
     src2 = get_gpr(ctx, a->rs2, ext);
     src3 = get_gpr(ctx, a->rs3, ext);
-    dst = dest_gpr(ctx, a->rs1);
+    dst = dest_gpr(ctx, a->rd);
 
     fn(dst, cpu_env, src1, src2, src3);
     gen_set_gpr(ctx, a->rd, dst);
