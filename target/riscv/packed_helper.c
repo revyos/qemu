@@ -2198,7 +2198,11 @@ static inline void do_ursub64(CPURISCVState *env, void *vd, void *va,
                               void *vb, uint8_t i)
 {
     uint64_t *d = vd, *a = va, *b = vb;
-    *d = hsubu64(*a, *b);
+    if (*a >= *b) {
+        *d = hsubu64(*a, *b);
+    } else {
+        *d = hsubu64(*a, *b) | INT64_MAX;
+    }
 }
 
 RVPR64_64_64(ursub64, 1, 8);
