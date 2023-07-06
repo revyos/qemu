@@ -2201,7 +2201,7 @@ static inline void do_ursub64(CPURISCVState *env, void *vd, void *va,
     if (*a >= *b) {
         *d = hsubu64(*a, *b);
     } else {
-        *d = hsubu64(*a, *b) | INT64_MAX;
+        *d = hsubu64(*a, *b) | INT64_MIN;
     }
 }
 
