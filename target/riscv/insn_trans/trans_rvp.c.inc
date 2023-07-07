@@ -39,10 +39,11 @@ r_inline(DisasContext *ctx, arg_r *a, DisasExtend ext,
     if (!has_ext(ctx, RVP)) {
         return false;
     }
-    if (a->rd && a->rs1 && a->rs2) {
-        vecop(cpu_gpr[a->rd], cpu_gpr[a->rs1], cpu_gpr[a->rs2]);
+    if (a->rd == 0) {
+        return true;
     } else {
-        gen_arith(ctx, a, ext, op);
+        vecop(cpu_gpr[a->rd], (a->rs1 == 0) ? tcg_constant_tl(0) : cpu_gpr[a->rs1],
+              (a->rs2 == 0) ? tcg_constant_tl(0) : cpu_gpr[a->rs2]);
     }
     return true;
 }
