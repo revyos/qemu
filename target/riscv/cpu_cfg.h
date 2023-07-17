@@ -61,6 +61,7 @@ struct RISCVCPUConfig {
     bool ext_zksed;
     bool ext_zksh;
     bool ext_zkt;
+    bool ext_psfoperand;
     bool ext_ifencei;
     bool ext_icsr;
     bool ext_icbom;
@@ -112,15 +113,20 @@ struct RISCVCPUConfig {
     bool ext_xtheadmemidx;
     bool ext_xtheadmempair;
     bool ext_xtheadsync;
+    bool ext_xtheadisr;
+    bool ext_xtheadmaee;
     bool ext_XVentanaCondOps;
+    bool ext_matrix;
 
     uint8_t pmu_num;
     char *priv_spec;
     char *user_spec;
     char *bext_spec;
     char *vext_spec;
+    char *pext_spec;
     uint16_t vlen;
     uint16_t elen;
+    uint16_t mrowlen;
     uint16_t cbom_blocksize;
     uint16_t cboz_blocksize;
     bool mmu;
@@ -152,7 +158,13 @@ static inline bool has_xthead_p(const RISCVCPUConfig *cfg)
            cfg->ext_xtheadcondmov ||
            cfg->ext_xtheadfmemidx || cfg->ext_xtheadfmv ||
            cfg->ext_xtheadmac || cfg->ext_xtheadmemidx ||
-           cfg->ext_xtheadmempair || cfg->ext_xtheadsync;
+           cfg->ext_xtheadmempair || cfg->ext_xtheadsync ||
+           cfg->ext_xtheadmaee || cfg->ext_xtheadisr;
+}
+
+static inline bool has_v0p7_p(const RISCVCPUConfig *cfg)
+{
+    return !g_strcmp0(cfg->vext_spec, "v0.7.1");
 }
 
 #define MATERIALISE_EXT_PREDICATE(ext) \

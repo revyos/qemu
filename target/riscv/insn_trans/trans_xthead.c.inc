@@ -82,6 +82,12 @@
     }                                            \
 } while (0)
 
+#define REQUIRE_XTHEADISR(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadisr) {          \
+        return false;                            \
+    }                                            \
+} while (0)
+
 /*
  * Calculate and return the address for indexed mem operations:
  * If !zext_offs, then the address is rs1 + (rs2 << imm2).
@@ -296,7 +302,7 @@ NOP_PRIVCHECK(th_dcache_csw, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
 NOP_PRIVCHECK(th_dcache_cisw, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
 NOP_PRIVCHECK(th_dcache_isw, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
 NOP_PRIVCHECK(th_dcache_cpal1, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
-NOP_PRIVCHECK(th_dcache_cval1, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
+NOP_PRIVCHECK(th_dcache_cval1, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MSU)
 
 NOP_PRIVCHECK(th_icache_iall, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
 NOP_PRIVCHECK(th_icache_ialls, REQUIRE_XTHEADCMO, REQUIRE_PRIV_MS)
@@ -347,9 +353,12 @@ static bool gen_fload_idx(DisasContext *ctx, arg_th_memidx *a, MemOp memop,
                           bool zext_offs)
 {
     TCGv_i64 rd = cpu_fpr[a->rd];
+    TCGv data = tcg_temp_new();
     TCGv addr = get_th_address_indexed(ctx, a->rs1, a->rs2, a->imm2, zext_offs);
 
     tcg_gen_qemu_ld_i64(rd, addr, ctx->mem_idx, memop);
+    tcg_gen_trunc_i64_tl(data, rd);
+    gen_load_internal(ctx, memop, data, addr);
     if ((memop & MO_SIZE) == MO_32) {
         gen_nanbox_s(rd, rd);
     }
@@ -367,10 +376,12 @@ static bool gen_fstore_idx(DisasContext *ctx, arg_th_memidx *a, MemOp memop,
                            bool zext_offs)
 {
     TCGv_i64 rd = cpu_fpr[a->rd];
+    TCGv data = tcg_temp_new();
     TCGv addr = get_th_address_indexed(ctx, a->rs1, a->rs2, a->imm2, zext_offs);
 
     tcg_gen_qemu_st_i64(rd, addr, ctx->mem_idx, memop);
-
+    tcg_gen_trunc_i64_tl(data, rd);
+    gen_store_internal(ctx, memop, data, addr);
     return true;
 }
 
@@ -569,6 +580,7 @@ static bool gen_load_inc(DisasContext *ctx, arg_th_meminc *a, MemOp memop,
     TCGv rs1 = get_gpr(ctx, a->rs1, EXT_NONE);
 
     tcg_gen_qemu_ld_tl(rd, addr, ctx->mem_idx, memop);
+    gen_load_internal(ctx, memop, rd, addr);
     tcg_gen_addi_tl(rs1, rs1, imm);
     gen_set_gpr(ctx, a->rd, rd);
     gen_set_gpr(ctx, a->rs1, rs1);
@@ -589,6 +601,7 @@ static bool gen_store_inc(DisasContext *ctx, arg_th_meminc *a, MemOp memop,
     TCGv rs1 = get_gpr(ctx, a->rs1, EXT_NONE);
 
     tcg_gen_qemu_st_tl(data, addr, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, data, addr);
     tcg_gen_addi_tl(rs1, rs1, imm);
     gen_set_gpr(ctx, a->rs1, rs1);
     return true;
@@ -744,6 +757,7 @@ static bool gen_load_idx(DisasContext *ctx, arg_th_memidx *a, MemOp memop,
     TCGv addr = get_th_address_indexed(ctx, a->rs1, a->rs2, a->imm2, zext_offs);
 
     tcg_gen_qemu_ld_tl(rd, addr, ctx->mem_idx, memop);
+    gen_load_internal(ctx, memop, rd, addr);
     gen_set_gpr(ctx, a->rd, rd);
 
     return true;
@@ -761,7 +775,7 @@ static bool gen_store_idx(DisasContext *ctx, arg_th_memidx *a, MemOp memop,
     TCGv addr = get_th_address_indexed(ctx, a->rs1, a->rs2, a->imm2, zext_offs);
 
     tcg_gen_qemu_st_tl(data, addr, ctx->mem_idx, memop);
-
+    gen_store_internal(ctx, memop, data, addr);
     return true;
 }
 
@@ -922,6 +936,8 @@ static bool gen_loadpair_tl(DisasContext *ctx, arg_th_pair *a, MemOp memop,
 
     tcg_gen_qemu_ld_tl(t1, addr1, ctx->mem_idx, memop);
     tcg_gen_qemu_ld_tl(t2, addr2, ctx->mem_idx, memop);
+    gen_load_internal(ctx, memop, t1, addr1);
+    gen_load_internal(ctx, memop, t2, addr2);
     gen_set_gpr(ctx, a->rd1, t1);
     gen_set_gpr(ctx, a->rd2, t2);
     return true;
@@ -960,6 +976,8 @@ static bool gen_storepair_tl(DisasContext *ctx, arg_th_pair *a, MemOp memop,
 
     tcg_gen_qemu_st_tl(data1, addr1, ctx->mem_idx, memop);
     tcg_gen_qemu_st_tl(data2, addr2, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, data1, addr1);
+    gen_store_internal(ctx, memop, data2, addr2);
     return true;
 }
 
@@ -992,7 +1010,6 @@ static bool trans_th_sfence_vmas(DisasContext *ctx, arg_th_sfence_vmas *a)
 #endif
 }
 
-#ifndef CONFIG_USER_ONLY
 static void gen_th_sync_local(DisasContext *ctx)
 {
     /*
@@ -1003,15 +1020,11 @@ static void gen_th_sync_local(DisasContext *ctx)
     tcg_gen_exit_tb(NULL, 0);
     ctx->base.is_jmp = DISAS_NORETURN;
 }
-#endif
 
 static bool trans_th_sync(DisasContext *ctx, arg_th_sync *a)
 {
     (void) a;
     REQUIRE_XTHEADSYNC(ctx);
-
-#ifndef CONFIG_USER_ONLY
-    REQUIRE_PRIV_MSU(ctx);
 
     /*
      * th.sync is an out-of-order barrier.
@@ -1019,9 +1032,6 @@ static bool trans_th_sync(DisasContext *ctx, arg_th_sync *a)
     gen_th_sync_local(ctx);
 
     return true;
-#else
-    return false;
-#endif
 }
 
 static bool trans_th_sync_i(DisasContext *ctx, arg_th_sync_i *a)
@@ -1029,18 +1039,12 @@ static bool trans_th_sync_i(DisasContext *ctx, arg_th_sync_i *a)
     (void) a;
     REQUIRE_XTHEADSYNC(ctx);
 
-#ifndef CONFIG_USER_ONLY
-    REQUIRE_PRIV_MSU(ctx);
-
     /*
      * th.sync.i is th.sync plus pipeline flush.
      */
     gen_th_sync_local(ctx);
 
     return true;
-#else
-    return false;
-#endif
 }
 
 static bool trans_th_sync_is(DisasContext *ctx, arg_th_sync_is *a)
@@ -1053,4 +1057,44 @@ static bool trans_th_sync_s(DisasContext *ctx, arg_th_sync_s *a)
 {
     /* This instruction has the same behaviour like th.sync. */
     return trans_th_sync(ctx, a);
+}
+
+/* XTheadISR */
+
+/* Test if priv level is M. */
+#define REQUIRE_PRIV_M(ctx)                                     \
+do {                                                            \
+    if (ctx->priv != PRV_M) {                                   \
+        return false;                                           \
+    }                                                           \
+} while (0)
+
+
+static bool trans_ipush(DisasContext *ctx, arg_ipush *a)
+{
+#ifndef CONFIG_USER_ONLY
+    REQUIRE_PRIV_M(ctx);
+    REQUIRE_32BIT(ctx);
+    REQUIRE_XTHEADISR(ctx);
+    gen_helper_ipush(cpu_env);
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool trans_ipop(DisasContext *ctx, arg_ipop *a)
+{
+#ifndef CONFIG_USER_ONLY
+    REQUIRE_PRIV_M(ctx);
+    REQUIRE_32BIT(ctx);
+    REQUIRE_XTHEADISR(ctx);
+    gen_update_pc(ctx, ctx->cur_insn_len);
+    gen_helper_ipop(cpu_pc, cpu_env);
+    exit_tb(ctx); /* no chaining */
+    ctx->base.is_jmp = DISAS_NORETURN;
+    return true;
+#else
+    return false;
+#endif
 }

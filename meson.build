@@ -434,6 +434,7 @@ if get_option('fuzzing')
   endif
 endif
 
+qemu_ldflags += ['-lstdc++']
 add_global_arguments(qemu_common_flags, native: false, language: all_languages)
 add_global_link_arguments(qemu_ldflags, native: false, language: all_languages)
 
@@ -2827,6 +2828,7 @@ disassemblers = {
   'sparc' : ['CONFIG_SPARC_DIS'],
   'xtensa' : ['CONFIG_XTENSA_DIS'],
   'loongarch' : ['CONFIG_LOONGARCH_DIS'],
+  'csky' : ['CONFIG_CSKY_DIS'],
 }
 
 have_ivshmem = config_host_data.get('CONFIG_EVENTFD')
@@ -3774,6 +3776,11 @@ foreach target : target_dirs
   arch_srcs += target_specific.sources()
   arch_deps += target_specific.dependencies()
 
+  if 'CONFIG_CSKY_TRACE' in config_target
+    if config_target['CONFIG_CSKY_TRACE'] == 'y'
+      arch_srcs += files('tracestub.c', 'csky-trace.c')
+    endif
+  endif
   lib = static_library('qemu-' + target,
                  sources: arch_srcs + genh,
                  dependencies: arch_deps,

@@ -22,9 +22,52 @@
 #include "cpu.h"
 #include "internals.h"
 #include "qemu/main-loop.h"
+#include "qemu/log.h"
 #include "exec/exec-all.h"
 #include "exec/helper-proto.h"
 
+#if !defined(CONFIG_USER_ONLY)
+#include "hw/intc/riscv_clic.h"
+#endif
+
+void helper_tb_trace(CPURISCVState *env, target_ulong tb_pc)
+{
+    int trace_index = env->trace_index % TB_TRACE_NUM;
+    env->trace_info[trace_index].tb_pc = tb_pc;
+    env->trace_info[trace_index].notjmp = false;
+    env->trace_index++;
+    if (env->jcount_enable == 0) {
+        qemu_log_mask(CPU_TB_TRACE, "0x" TARGET_FMT_lx "\n", tb_pc);
+    } else if ((tb_pc > env->jcount_start) &&
+                (tb_pc < env->jcount_end)) {
+        qemu_log_mask(CPU_TB_TRACE, "0x" TARGET_FMT_lx "\n", tb_pc);
+    }
+}
+
+void helper_tag_pctrace(CPURISCVState *env, target_ulong tb_pc)
+{
+    if (env->trace_index < 1) {
+        return;
+    }
+    int trace_index = (env->trace_index -1) % TB_TRACE_NUM;
+    if (env->trace_info[trace_index].tb_pc == tb_pc) {
+        env->trace_info[trace_index].notjmp = true;
+    }
+}
+
+#ifdef CONFIG_USER_ONLY
+extern long long total_jcount;
+void helper_jcount(CPURISCVState *env, target_ulong tb_pc, uint32_t icount)
+{
+    if ((tb_pc >= env->jcount_start) && (tb_pc < env->jcount_end)) {
+        total_jcount += icount;
+    }
+}
+#else
+void helper_jcount(CPURISCVState *env, target_ulong tb_pc, uint32_t icount)
+{
+}
+#endif
 /* Exceptions processing helpers */
 G_NORETURN void riscv_raise_exception(CPURISCVState *env,
                                       uint32_t exception, uintptr_t pc)
@@ -310,13 +353,23 @@ target_ulong helper_sret(CPURISCVState *env)
 
         riscv_cpu_set_virt_enabled(env, prev_virt);
     }
+    if (riscv_clic_is_clic_mode(env)) {
+        CPUState *cs = env_cpu(env);
+        target_ulong spil = get_field(env->scause, SCAUSE_SPIL);
+        env->mintstatus = set_field(env->mintstatus, MINTSTATUS_SIL, spil);
+        env->scause = set_field(env->scause, SCAUSE_SPIE, 1);
+        env->scause = set_field(env->scause, SCAUSE_SPP, PRV_U);
+        qemu_mutex_lock_iothread();
+        riscv_clic_get_next_interrupt(env->clic, cs->cpu_index);
+        qemu_mutex_unlock_iothread();
+    }
 
     riscv_cpu_set_mode(env, prev_priv);
 
     return retpc;
 }
 
-target_ulong helper_mret(CPURISCVState *env)
+static target_ulong do_excp_return(CPURISCVState *env, target_ulong ra)
 {
     if (!(env->priv >= PRV_M)) {
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());
@@ -325,6 +378,17 @@ target_ulong helper_mret(CPURISCVState *env)
     target_ulong retpc = env->mepc;
     if (!riscv_has_ext(env, RVC) && (retpc & 0x3)) {
         riscv_raise_exception(env, RISCV_EXCP_INST_ADDR_MIS, GETPC());
+    }
+    /* if CLIC mode, copy mcause.mpil into minstatus.mil */
+    if ((env->mtvec & 0b111110) == 0b000010) {
+        target_ulong mpil = get_field(env->mcause, MCAUSE_MPIL);
+        env->mintstatus = set_field(env->mintstatus, MINTSTATUS_MIL, mpil);
+        if ((mpil == 0) && (env->mexstatus & MEXSTATUS_SPSWAP)
+            && ((target_long)env->mcause < 0)) {
+            target_ulong tmp = env->mscratch;
+            env->mscratch = env->gpr[2];
+            env->gpr[2] = tmp;
+        }
     }
 
     uint64_t mstatus = env->mstatus;
@@ -356,8 +420,25 @@ target_ulong helper_mret(CPURISCVState *env)
 
         riscv_cpu_set_virt_enabled(env, prev_virt);
     }
+    /* FIXME: Add Xuantie check */
+    env->excp_vld = 0;
 
+    if (riscv_clic_is_clic_mode(env)) {
+        CPUState *cs = env_cpu(env);
+        target_ulong mpil = get_field(env->mcause, MCAUSE_MPIL);
+        env->mintstatus = set_field(env->mintstatus, MINTSTATUS_MIL, mpil);
+        env->mcause = set_field(env->mcause, MCAUSE_MPIE, 1);
+        env->mcause = set_field(env->mcause, MCAUSE_MPP, PRV_U);
+        qemu_mutex_lock_iothread();
+        riscv_clic_get_next_interrupt(env->clic, cs->cpu_index);
+        qemu_mutex_unlock_iothread();
+    }
     return retpc;
+}
+
+target_ulong helper_mret(CPURISCVState *env)
+{
+    return do_excp_return(env, GETPC());
 }
 
 void helper_wfi(CPURISCVState *env)
@@ -542,4 +623,89 @@ target_ulong helper_hyp_hlvx_wu(CPURISCVState *env, target_ulong addr)
     return cpu_ldl_code_mmu(env, addr, oi, ra);
 }
 
+void helper_ipush(CPURISCVState *env)
+{
+    target_ulong base = env->gpr[2];
+    int i = 4;
+    /* TODO: probe the memory */
+    for(; i <= 72; i += 4) {
+        switch (i) {
+        case 4:
+            cpu_stl_data(env, base - i, env->mcause);
+            break;
+        case 8:
+            cpu_stl_data(env, base - i, env->mepc);
+            break;
+        case 12: /* X1 */
+            cpu_stl_data(env, base - i, env->gpr[1]);
+            break;
+        case 16: /* X5-X7 */
+        case 20:
+        case 24:
+            cpu_stl_data(env, base - i, env->gpr[i / 4 + 1]);
+            break;
+        case 28: /* X10-X17 */
+        case 32:
+        case 36:
+        case 40:
+        case 44:
+        case 48:
+        case 52:
+        case 56:
+            cpu_stl_data(env, base - i, env->gpr[i / 4 + 3]);
+            break;
+        case 60: /* X28-X31 */
+        case 64:
+        case 68:
+        case 72:
+            cpu_stl_data(env, base - i, env->gpr[i / 4 + 13]);
+            break;
+        }
+    }
+    env->gpr[2] -= 72;
+    env->mstatus = set_field(env->mstatus, MSTATUS_MIE, 1);
+}
+
+target_ulong helper_ipop(CPURISCVState *env)
+{
+    target_ulong base = env->gpr[2];
+    int i = 68;
+    /* TODO: probe the memory */
+    for(; i >= 0; i -= 4) {
+        switch (i) {
+        case 0: /* X31-X28 */
+        case 4:
+        case 8:
+        case 12:
+            env->gpr[31 - i / 4] = cpu_ldl_data(env, base + i);
+            break;
+        case 16: /* X17-X10 */
+        case 20:
+        case 24:
+        case 28:
+        case 32:
+        case 36:
+        case 40:
+        case 44:
+            env->gpr[21 - i / 4] = cpu_ldl_data(env, base + i);
+            break;
+        case 48: /* X7-X5 */
+        case 52:
+        case 56:
+            env->gpr[19 - i / 4] = cpu_ldl_data(env, base + i);
+            break;
+        case 60: /* X1 */
+            env->gpr[1] = cpu_ldl_data(env, base + i);
+            break;
+        case 64:
+            env->mepc = cpu_ldl_data(env, base + i);
+            break;
+        case 68:
+            env->mcause = cpu_ldl_data(env, base + i);
+            break;
+        }
+    }
+    env->gpr[2] += 72;
+    return do_excp_return(env, GETPC());
+}
 #endif /* !CONFIG_USER_ONLY */

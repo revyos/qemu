@@ -148,11 +148,11 @@ static uint64_t riscv_aclint_mtimer_read(void *opaque, hwaddr addr,
                           "aclint-mtimer: invalid read: %08x", (uint32_t)addr);
             return 0;
         }
-    } else if (addr == mtimer->time_base) {
+    } else if ((mtimer->time_base != UINT32_MAX) && (addr == mtimer->time_base)) {
         /* time_lo for RV32/RV64 or timecmp for RV64 */
         uint64_t rtc = cpu_riscv_read_rtc(mtimer);
         return (size == 4) ? (rtc & 0xFFFFFFFF) : rtc;
-    } else if (addr == mtimer->time_base + 4) {
+    } else if ((mtimer->time_base != UINT32_MAX) && (addr == mtimer->time_base + 4)) {
         /* time_hi */
         return (cpu_riscv_read_rtc(mtimer) >> 32) & 0xFFFFFFFF;
     }
@@ -206,7 +206,8 @@ static void riscv_aclint_mtimer_write(void *opaque, hwaddr addr,
                           (uint32_t)addr);
         }
         return;
-    } else if (addr == mtimer->time_base || addr == mtimer->time_base + 4) {
+    } else if ((mtimer->time_base != UINT32_MAX) &&
+               (addr == mtimer->time_base || addr == mtimer->time_base + 4)) {
         uint64_t rtc_r = cpu_riscv_read_rtc_raw(mtimer->timebase_freq);
 
         if (addr == mtimer->time_base) {
@@ -293,7 +294,7 @@ static void riscv_aclint_mtimer_realize(DeviceState *dev, Error **errp)
     /* Claim timer interrupt bits */
     for (i = 0; i < s->num_harts; i++) {
         RISCVCPU *cpu = RISCV_CPU(cpu_by_arch_id(s->hartid_base + i));
-        if (riscv_cpu_claim_interrupts(cpu, MIP_MTIP) < 0) {
+        if (riscv_cpu_claim_interrupts(cpu, s->time_base == UINT32_MAX ? MIP_STIP : MIP_MTIP) < 0) {
             error_report("MTIP already claimed");
             exit(1);
         }
@@ -360,7 +361,9 @@ DeviceState *riscv_aclint_mtimer_create(hwaddr addr, hwaddr size,
     assert(num_harts <= RISCV_ACLINT_MAX_HARTS);
     assert(!(addr & 0x7));
     assert(!(timecmp_base & 0x7));
-    assert(!(time_base & 0x7));
+    if (time_base != UINT32_MAX) {
+        assert(!(time_base & 0x7));
+    }
 
     qdev_prop_set_uint32(dev, "hartid-base", hartid_base);
     qdev_prop_set_uint32(dev, "num-harts", num_harts);
@@ -390,10 +393,11 @@ DeviceState *riscv_aclint_mtimer_create(hwaddr addr, hwaddr size,
         cb->num = i;
         s->timers[i] = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                   &riscv_aclint_mtimer_cb, cb);
-        s->timecmp[i] = 0;
+        s->timecmp[i] = UINT64_MAX;
 
-        qdev_connect_gpio_out(dev, i,
-                              qdev_get_gpio_in(DEVICE(rvcpu), IRQ_M_TIMER));
+        qdev_connect_gpio_out(dev, i, qdev_get_gpio_in(DEVICE(rvcpu),
+                                        time_base == UINT32_MAX ? IRQ_S_TIMER :
+                                                                 IRQ_M_TIMER));
     }
 
     return dev;

@@ -20,7 +20,7 @@
 #include "exec/gdbstub.h"
 #include "gdbstub/helpers.h"
 #include "cpu.h"
-
+#include "internals.h"
 struct TypeSize {
     const char *gdb_type;
     const char *id;
@@ -153,6 +153,36 @@ static int riscv_gdb_set_vector(CPURISCVState *env, uint8_t *mem_buf, int n)
             env->vreg[(n * vlenb + i) / 8] = ldq_p(mem_buf + i);
         }
         return vlenb;
+    }
+
+    return 0;
+}
+
+static int riscv_gdb_get_matrix(CPURISCVState *env, GByteArray *buf, int n)
+{
+    target_ulong mlenb = get_mlenb(env);
+    if (n < 8) {
+        int i;
+        int cnt = 0;
+        for (i = 0; i < mlenb; i += 8) {
+            cnt += gdb_get_reg64(buf,
+                                 env->mreg[(n * mlenb + i) / 8]);
+        }
+        return cnt;
+    }
+
+    return 0;
+}
+
+static int riscv_gdb_set_matrix(CPURISCVState *env, uint8_t *mem_buf, int n)
+{
+    target_ulong mlenb = get_mlenb(env);
+    if (n < 8) {
+        int i;
+        for (i = 0; i < mlenb; i += 8) {
+            env->mreg[(n * mlenb + i) / 8] = ldq_p(mem_buf + i);
+        }
+        return mlenb;
     }
 
     return 0;
@@ -308,6 +338,53 @@ static int ricsv_gen_dynamic_vector_xml(CPUState *cs, int base_reg)
     return num_regs;
 }
 
+static int ricsv_gen_dynamic_matrix_xml(CPUState *cs, int base_reg)
+{
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    GString *s = g_string_new(NULL);
+    g_autoptr(GString) ts = g_string_new("");
+    int reg_width = get_mlenb(&cpu->env) * 8;
+    int num_regs = 0;
+    int i;
+
+    g_string_printf(s, "<?xml version=\"1.0\"?>");
+    g_string_append_printf(s, "<!DOCTYPE target SYSTEM \"gdb-target.dtd\">");
+    g_string_append_printf(s, "<feature name=\"org.gnu.gdb.riscv.matrix\">");
+
+    /* First define types and totals in a whole MLEN */
+    for (i = 0; i < ARRAY_SIZE(vec_lanes); i++) {
+        int count = reg_width / vec_lanes[i].size;
+        g_string_printf(ts, "%s", vec_lanes[i].id);
+        g_string_append_printf(s,
+                               "<vector id=\"%s\" type=\"%s\" count=\"%d\"/>",
+                               ts->str, vec_lanes[i].gdb_type, count);
+    }
+
+    /* Define unions */
+    g_string_append_printf(s, "<union id=\"riscv_matrix\">");
+    for (i = 0; i < ARRAY_SIZE(vec_lanes); i++) {
+        g_string_append_printf(s, "<field name=\"%c\" type=\"%s\"/>",
+                               vec_lanes[i].suffix,
+                               vec_lanes[i].id);
+    }
+    g_string_append(s, "</union>");
+
+    /* Define matrix registers */
+    for (i = 0; i < 8; i++) {
+        g_string_append_printf(s,
+                               "<reg name=\"m%d\" bitsize=\"%d\""
+                               " regnum=\"%d\" group=\"matrix\""
+                               " type=\"riscv_matrix\"/>",
+                               i, reg_width, base_reg++);
+        num_regs++;
+    }
+
+    g_string_append_printf(s, "</feature>");
+
+    cpu->dyn_mreg_xml = g_string_free(s, false);
+    return num_regs;
+}
+
 void riscv_cpu_register_gdb_regs_for_features(CPUState *cs)
 {
     RISCVCPU *cpu = RISCV_CPU(cs);
@@ -325,6 +402,12 @@ void riscv_cpu_register_gdb_regs_for_features(CPUState *cs)
                                  riscv_gdb_set_vector,
                                  ricsv_gen_dynamic_vector_xml(cs, base_reg),
                                  "riscv-vector.xml", 0);
+    }
+    if (cpu->cfg.ext_matrix) {
+        gdb_register_coprocessor(cs, riscv_gdb_get_matrix, riscv_gdb_set_matrix,
+                                 ricsv_gen_dynamic_matrix_xml(cs,
+                                                              cs->gdb_num_regs),
+                                 "riscv-matrix.xml", 0);
     }
     switch (env->misa_mxl_max) {
     case MXL_RV32:

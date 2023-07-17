@@ -34,6 +34,10 @@ static bool trans_wrs(DisasContext *ctx)
     tcg_gen_movi_tl(load_res, -1);
 
     gen_update_pc(ctx, ctx->cur_insn_len);
+    if (gen_tb_trace()) {
+        csky_trace_tb_exit(0x2, ctx->base.pc_next + ctx->cur_insn_len -
+                                ctx->base.pc_first);
+    }
     tcg_gen_exit_tb(NULL, 0);
     ctx->base.is_jmp = DISAS_NORETURN;
 

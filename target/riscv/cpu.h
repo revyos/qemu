@@ -30,9 +30,10 @@
 #include "cpu_cfg.h"
 #include "qapi/qapi-types-common.h"
 #include "cpu-qom.h"
+#include "exec/pctrace.h"
 
 #define TCG_GUEST_DEFAULT_MO 0
-
+#define CPU_INTERRUPT_CLIC CPU_INTERRUPT_TGT_EXT_0
 /*
  * RISC-V-specific extra insn start words:
  * 1: Original instruction opcode
@@ -58,6 +59,7 @@
 #define RVH RV('H')
 #define RVJ RV('J')
 #define RVG RV('G')
+#define RVP RV('P')
 
 const char *riscv_get_misa_ext_name(uint32_t bit);
 const char *riscv_get_misa_ext_description(uint32_t bit);
@@ -72,6 +74,8 @@ enum {
 };
 
 #define VEXT_VERSION_1_00_0 0x00010000
+#define VEXT_VERSION_0_07_1 0x00000701
+#define PEXT_VERSION_0_09_4 0x00000904
 
 enum {
     TRANSLATE_SUCCESS,
@@ -101,12 +105,33 @@ typedef enum {
 #define RV_MAX_MHPMEVENTS 32
 #define RV_MAX_MHPMCOUNTERS 32
 
+FIELD(VTYPE_7, VLMUL, 0, 2)
+FIELD(VTYPE_7, VSEW, 2, 3)
+FIELD(VTYPE_7, VEDIV, 5, 2)
+FIELD(VTYPE_7, RESERVED, 7, sizeof(target_ulong) * 8 - 9)
+FIELD(VTYPE_7, VILL, sizeof(target_ulong) * 8 - 1, 1)
+FIELD(VTYPE_7, VILL_OLEN32, 31, 1)
+FIELD(VTYPE_7, RESERVED_OLEN32, 7, 23)
+
 FIELD(VTYPE, VLMUL, 0, 3)
 FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, VEDIV, 8, 2)
 FIELD(VTYPE, RESERVED, 10, sizeof(target_ulong) * 8 - 11)
+
+FIELD(MSIZE, SIZEM, 0, 8)
+FIELD(MSIZE, SIZEN, 8, 8)
+FIELD(MSIZE, SIZEK, 16, 16)
+
+#define RV_RLEN_MAX 4096
+#define RV_MACC_LEN 32
+
+/* See the commentary above the TBFLAG field definitions.  */
+typedef struct CPURISCVTBFlags {
+    uint32_t flags;
+    target_ulong flags2;
+} CPURISCVTBFlags;
 
 typedef struct PMUCTRState {
     /* Current value of a counter */
@@ -144,6 +169,17 @@ struct CPUArchState {
     target_ulong frm;
     float_status fp_status;
 
+    /* matrix state */
+    target_ulong mrstart;
+    target_ulong mcsr;
+    target_ulong mxsat;
+    target_ulong mxrm;
+    target_ulong xmisa;
+    uint64_t mreg[8 * RV_RLEN_MAX / RV_MACC_LEN  * RV_RLEN_MAX / 64] QEMU_ALIGNED(16);
+    target_ulong sizem;
+    target_ulong sizen;
+    target_ulong sizek;
+
     target_ulong badaddr;
     target_ulong bins;
 
@@ -152,6 +188,7 @@ struct CPUArchState {
     target_ulong priv_ver;
     target_ulong bext_ver;
     target_ulong vext_ver;
+    target_ulong pext_ver;
 
     /* RISCVMXL, but uint32_t for vmstate migration */
     uint32_t misa_mxl;      /* current mxl */
@@ -356,9 +393,73 @@ struct CPUArchState {
     uint64_t sstateen[SMSTATEEN_MAX_COUNT];
     target_ulong senvcfg;
     uint64_t henvcfg;
+
+    /* Xuantie extends */
+
+    uint64_t mxstatus;
+    uint64_t mrmr;
+    uint64_t mrvbr;
+    uint64_t cpuid;
+    uint64_t sxstatus;
+    uint64_t smcir;
+    uint64_t smir;
+    uint64_t smlo0;
+    uint64_t smeh;
+    uint64_t mexstatus;
+    CPURISCVState * next_cpu;
+    bool     in_reset;
+    target_ulong excp_vld;
+
+    /* tcm */
+    MemoryRegion *dtcm;
+    MemoryRegion *itcm;
+    target_ulong mdtcmcr;
+    target_ulong mitcmcr;
+
+    /* CLIC */
+    uint32_t mintstatus;
+    target_ulong mintthresh;
+    target_ulong sintthresh;
+    uint32_t exccode; /* clic irq encode */
+    target_ulong mclicbase;
+    target_ulong stvt;
+    target_ulong mtvt; /* base address of the trap vector table */
 #endif
     target_ulong cur_pmmask;
     target_ulong cur_pmbase;
+    /* Xuantie extends */
+    bool bf16;
+    uint64_t elf_start;
+    uint32_t pctrace;
+    uint32_t tb_trace;
+    struct {
+        uint32_t tcr;
+        uint32_t ter;
+        uint32_t tsr;
+        uint32_t cyc;
+        uint32_t sync;
+        uint32_t hw_trgr;
+        uint32_t addr_cmpr_config[2];
+        uint32_t addr_cmpr[2];
+        uint32_t asid;
+        uint32_t data_cmpr_config[2];
+        uint32_t data_cmpr[2];
+        uint32_t channel;
+        uint32_t data;
+        uint32_t status;
+    } cp13;
+    target_ulong last_pc;
+#ifdef TARGET_RISCV64
+    uint64_t jcount_enable;
+    uint64_t jcount_start;
+    uint64_t jcount_end;
+#else
+    uint32_t jcount_enable;
+    uint32_t jcount_start;
+    uint32_t jcount_end;
+#endif
+    struct csky_trace_info *trace_info;
+    uint32_t trace_index;
 
     /* Fields from here on are preserved across CPU reset. */
     QEMUTimer *stimer; /* Internal timer for S-mode interrupt */
@@ -368,6 +469,8 @@ struct CPUArchState {
     hwaddr kernel_addr;
     hwaddr fdt_addr;
 
+    /* CLIC */
+    void *clic;
 #ifdef CONFIG_KVM
     /* kvm timer */
     bool kvm_timer_dirty;
@@ -378,6 +481,10 @@ struct CPUArchState {
 #endif /* CONFIG_KVM */
 };
 
+typedef enum XTPowerState {
+    XT_POWER_ON = 0,
+    XT_POWER_OFF,
+} XTPowerState;
 /*
  * RISCVCPU:
  * @env: #CPURISCVState
@@ -393,6 +500,7 @@ struct ArchCPU {
 
     char *dyn_csr_xml;
     char *dyn_vreg_xml;
+    char *dyn_mreg_xml;
 
     /* Configuration Settings */
     RISCVCPUConfig cfg;
@@ -402,6 +510,8 @@ struct ArchCPU {
     uint32_t pmu_avail_ctrs;
     /* Mapping of events to counters */
     GHashTable *pmu_event_ctr_map;
+    /* extended by Xuantie for xiaohui platform */
+    XTPowerState power_state;
 };
 
 static inline int riscv_has_ext(CPURISCVState *env, target_ulong ext)
@@ -415,7 +525,7 @@ extern const char * const riscv_int_regnames[];
 extern const char * const riscv_int_regnamesh[];
 extern const char * const riscv_fpr_regnames[];
 
-const char *riscv_cpu_get_trap_name(target_ulong cause, bool async);
+const char *riscv_cpu_get_trap_name(target_ulong cause, bool async, bool clic);
 void riscv_cpu_do_interrupt(CPUState *cpu);
 int riscv_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
                                int cpuid, DumpState *s);
@@ -433,6 +543,7 @@ bool riscv_cpu_fp_enabled(CPURISCVState *env);
 target_ulong riscv_cpu_get_geilen(CPURISCVState *env);
 void riscv_cpu_set_geilen(CPURISCVState *env, target_ulong geilen);
 bool riscv_cpu_vector_enabled(CPURISCVState *env);
+bool riscv_cpu_matrix_enabled(CPURISCVState *env);
 void riscv_cpu_set_virt_enabled(CPURISCVState *env, bool enable);
 int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch);
 G_NORETURN void  riscv_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
@@ -460,6 +571,7 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env);
 int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint64_t interrupts);
 uint64_t riscv_cpu_update_mip(CPURISCVState *env, uint64_t mask,
                               uint64_t value);
+bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, int mode);
 #define BOOL_TO_MASK(x) (-!!(x)) /* helper for riscv_cpu_update_mip value */
 void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(void *),
                              void *arg);
@@ -484,28 +596,57 @@ void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
 
 #include "exec/cpu-all.h"
 
-FIELD(TB_FLAGS, MEM_IDX, 0, 3)
-FIELD(TB_FLAGS, FS, 3, 2)
+FIELD(TB_FLAGS_ANY, MEM_IDX, 0, 3)
+FIELD(TB_FLAGS_ANY, FS, 3, 2)
 /* Vector flags */
-FIELD(TB_FLAGS, VS, 5, 2)
-FIELD(TB_FLAGS, LMUL, 7, 3)
-FIELD(TB_FLAGS, SEW, 10, 3)
-FIELD(TB_FLAGS, VL_EQ_VLMAX, 13, 1)
-FIELD(TB_FLAGS, VILL, 14, 1)
-FIELD(TB_FLAGS, VSTART_EQ_ZERO, 15, 1)
+FIELD(TB_FLAGS_ANY, VS, 5, 2)
+FIELD(TB_FLAGS_ANY, LMUL, 7, 3)
+FIELD(TB_FLAGS_ANY, SEW, 10, 3)
+FIELD(TB_FLAGS_ANY, VL_EQ_VLMAX, 13, 1)
+FIELD(TB_FLAGS_ANY, VILL, 14, 1)
+FIELD(TB_FLAGS_ANY, VSTART_EQ_ZERO, 15, 1)
 /* The combination of MXL/SXL/UXL that applies to the current cpu mode. */
-FIELD(TB_FLAGS, XL, 16, 2)
+FIELD(TB_FLAGS_ANY, XL, 16, 2)
 /* If PointerMasking should be applied */
-FIELD(TB_FLAGS, PM_MASK_ENABLED, 18, 1)
-FIELD(TB_FLAGS, PM_BASE_ENABLED, 19, 1)
-FIELD(TB_FLAGS, VTA, 20, 1)
-FIELD(TB_FLAGS, VMA, 21, 1)
+FIELD(TB_FLAGS_ANY, PM_MASK_ENABLED, 18, 1)
+FIELD(TB_FLAGS_ANY, PM_BASE_ENABLED, 19, 1)
+FIELD(TB_FLAGS_ANY, VTA, 20, 1)
+FIELD(TB_FLAGS_ANY, VMA, 21, 1)
 /* Native debug itrigger */
-FIELD(TB_FLAGS, ITRIGGER, 22, 1)
+FIELD(TB_FLAGS_ANY, ITRIGGER, 22, 1)
 /* Virtual mode enabled */
-FIELD(TB_FLAGS, VIRT_ENABLED, 23, 1)
-FIELD(TB_FLAGS, PRIV, 24, 2)
-FIELD(TB_FLAGS, AXL, 26, 2)
+FIELD(TB_FLAGS_ANY, VIRT_ENABLED, 23, 1)
+FIELD(TB_FLAGS_ANY, PRIV, 24, 2)
+FIELD(TB_FLAGS_ANY, AXL, 26, 2)
+
+FIELD(TB_FLAGS_THEAD, PWI32, 0, 1)
+FIELD(TB_FLAGS_THEAD, PWI64, 1, 1)
+FIELD(TB_FLAGS_THEAD, I4I32, 2, 1)
+FIELD(TB_FLAGS_THEAD, I8I32, 3, 1)
+FIELD(TB_FLAGS_THEAD, I16I64, 4, 1)
+FIELD(TB_FLAGS_THEAD, F16F16, 5, 1)
+FIELD(TB_FLAGS_THEAD, F32F32, 6, 1)
+FIELD(TB_FLAGS_THEAD, F64F64, 7, 1)
+FIELD(TB_FLAGS_THEAD, MS, 8, 2)
+FIELD(TB_FLAGS_THEAD, MILL, 10, 1)
+FIELD(TB_FLAGS_THEAD, NILL, 11, 1)
+FIELD(TB_FLAGS_THEAD, KILL, 12, 1)
+FIELD(TB_FLAGS_THEAD, NPILL, 13, 1)
+FIELD(TB_FLAGS_THEAD, F16F32, 14, 1)
+FIELD(TB_FLAGS_THEAD, F32F64, 15, 1)
+FIELD(TB_FLAGS_THEAD, BF16, 20, 1)
+FIELD(TB_FLAGS_THEAD, MSD, 21, 1)
+
+/*
+ * Helpers for using the above.
+ */
+#define DP_TBFLAGS_ANY(DST, WHICH, VAL) \
+    (DST.flags = FIELD_DP32(DST.flags, TB_FLAGS_ANY, WHICH, VAL))
+#define DP_TBFLAGS_THEAD(DST, WHICH, VAL) \
+    (DST.flags2 = FIELD_DP32(DST.flags2, TB_FLAGS_THEAD, WHICH, VAL))
+
+#define EX_TBFLAGS_ANY(IN, WHICH)   FIELD_EX32(IN.flags, TB_FLAGS_ANY, WHICH)
+#define EX_TBFLAGS_THEAD(IN, WHICH) FIELD_EX32(IN.flags2, TB_FLAGS_THEAD, WHICH)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)
@@ -603,6 +744,24 @@ static inline RISCVMXL riscv_cpu_sxl(CPURISCVState *env)
 #endif
 }
 #endif
+
+/*
+ * A simplification for VLMAX
+ * = (1 << LMUL) * VLEN / (8 * (1 << SEW))
+ * = (VLEN << LMUL) / (8 << SEW)
+ * = (VLEN << LMUL) >> (SEW + 3)
+ * = VLEN >> (SEW + 3 - LMUL)
+ */
+static inline uint32_t vext_get_vlmax_7(RISCVCPU *cpu, target_ulong vtype)
+{
+    uint8_t sew = 0, lmul = 0;
+
+    if (cpu->env.vext_ver == VEXT_VERSION_0_07_1) {
+        sew = FIELD_EX64(vtype, VTYPE_7, VSEW);
+        lmul = FIELD_EX64(vtype, VTYPE_7, VLMUL);
+    }
+    return cpu->cfg.vlen >> (sew + 3 - lmul);
+}
 
 /*
  * Encode LMUL to lmul as follows:

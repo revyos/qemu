@@ -443,6 +443,9 @@ static Property sifive_plic_properties[] = {
 static void sifive_plic_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
+    dc->desc = "cskysim type: INTC";
+    dc->user_creatable = true;
 
     dc->reset = sifive_plic_reset;
     device_class_set_props(dc, sifive_plic_properties);

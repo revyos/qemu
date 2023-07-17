@@ -85,3 +85,49 @@ config SPIKE
     select HTIF
     select RISCV_ACLINT
     select SIFIVE_PLIC
+
+config THEAD_PMU
+    bool
+
+config RISCV_SMARTL
+    bool
+    select RISCV_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select CSKY_EXIT
+    select THEAD_PMU
+
+config RISCV_SMARTH
+    bool
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_EXIT
+
+config THEAD_ASP_V1
+    bool
+    select RISCV_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select THEAD_ASP_NNE_V1
+    select CSKY_EXIT
+
+config RISCV_DUMMYH
+    bool
+    select RISCV_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select CSKY_EXIT
+    select CSKY_CORET
+    select RISCV_ACLINT
+    select SIFIVE_PLIC
+    select XIAOHUI_CPR
+
+config RISCV_XIAOHUI
+    bool
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_EXIT
+    select XIAOHUI_CPR

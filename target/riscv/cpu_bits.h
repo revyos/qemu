@@ -540,6 +540,7 @@
 #define MSTATUS_MPIE        0x00000080
 #define MSTATUS_SPP         0x00000100
 #define MSTATUS_VS          0x00000600
+#define MSTATUS_VS_V0P7     0x01800000
 #define MSTATUS_MPP         0x00001800
 #define MSTATUS_FS          0x00006000
 #define MSTATUS_XS          0x00018000
@@ -549,6 +550,7 @@
 #define MSTATUS_TVM         0x00100000 /* since: priv-1.10 */
 #define MSTATUS_TW          0x00200000 /* since: priv-1.10 */
 #define MSTATUS_TSR         0x00400000 /* since: priv-1.10 */
+#define MSTATUS_TH_MS       0x06000000 /* since: priv-1.10 */
 #define MSTATUS_GVA         0x4000000000ULL
 #define MSTATUS_MPV         0x8000000000ULL
 
@@ -684,6 +686,7 @@ typedef enum RISCVException {
     RISCV_EXCP_STORE_GUEST_AMO_ACCESS_FAULT = 0x17,
 } RISCVException;
 
+#define RISCV_EXCP_INT_CLIC                0x40000000
 #define RISCV_EXCP_INT_FLAG                0x80000000
 #define RISCV_EXCP_INT_MASK                0x7fffffff
 
@@ -899,4 +902,262 @@ typedef enum RISCVException {
 /* JVT CSR bits */
 #define JVT_MODE                           0x3F
 #define JVT_BASE                           (~0x3F)
+
+/* Matrix CSR */
+#define CSR_MRSTART         0x801
+#define CSR_MCSR            0x802
+#define CSR_MSIZE           0x803
+#define CSR_MREGSIZE        0xCC0
+#define CSR_MLENB           0xCC1
+#define CSR_XMISA           0xCC2
+
+#define MXSTATUS_MSD        0x1
+
+#define MEXSTATUS_EXPT      0x20
+#define MEXSTATUS_SPSWAP    0x20000
+
+/* Matrix Sub Extension */
+#define MATRIX_MULT_F32F64  0x200
+#define MATRIX_MULT_F16F32  0x100
+#define MATRIX_PW_I32       0x80
+#define MATRIX_PW_I64       0x40
+#define MATRIX_MULT_F64F64  0x20
+#define MATRIX_MULT_F32F32  0x10
+#define MATRIX_MULT_F16F16  0x8
+#define MATRIX_MULT_I16I64  0x4
+#define MATRIX_MULT_I8I32   0x2
+#define MATRIX_MULT_I4I32   0x1
+
+/* Matrix Status */
+#define MCSR_RM            0xC
+#define MCSR_SAT           0x10
+
+/* T-HEAD CSR */
+#define CSR_FXCR            0x800
+#define CSR_MXSTATUS        0x7c0
+#define CSR_MHCR            0x7c1
+#define CSR_MCOR            0x7c2
+#define CSR_MCCR2           0x7c3
+#define CSR_MCER2           0x7c4
+#define CSR_MHINT           0x7c5
+#define CSR_MRMR            0x7c6
+#define CSR_MRVBR           0x7c7
+#define CSR_MCER            0x7c8
+#define CSR_MCOUNTERWEN     0x7c9
+#define CSR_MCOUNTERINTEN   0x7ca
+#define CSR_MCOUNTEROF      0x7cb
+#define CSR_MHINT2          0x7cc
+#define CSR_MHINT3          0x7cd
+#define CSR_MHINT4          0x7ce
+
+#define CSR_USP             0x7d1
+#define CSR_MCINS           0x7d2
+#define CSR_MCINDEX         0x7d3
+#define CSR_MCDATA0         0x7d4
+#define CSR_MCDATA1         0x7d5
+#define CSR_MEICR           0x7d6
+#define CSR_MEICR2          0x7d7
+#define CSR_MBEADDR         0x7d8
+#define CSR_MCPER           0x7d9
+#define CSR_MCINDEXH        0x7da
+#define CSR_MCDATA0H        0x7db
+#define CSR_MCDATA1H        0x7dc
+
+#define CSR_MRADDR          0x7e0
+#define CSR_MEXSTATUS       0x7e1
+#define CSR_MNMICAUSE       0x7e2
+#define CSR_MNMIPC          0x7e3
+
+
+#define CSR_MHPMCR          0x7f0
+#define CSR_MHPMSR          0x7f1
+#define CSR_MHPMER          0x7f2
+#define CSR_MSMPR           0x7f3
+#define CSR_MZONEID         0x7f5
+#define CSR_ML2PID          0x7f6
+#define CSR_ML2WP           0x7f7
+#define CSR_MDTCMCR         0x7f8
+#define CSR_MITCMCR         0x7f9
+#define CSR_MIESR           0x7fa
+#define CSR_MSBEPA          0x7fb
+#define CSR_MSBEPA2         0x7fc
+#define CSR_ML2WPH          0x7fd
+#define CSR_MCERH           0x7fe
+#define CSR_MCER2H          0x7ff
+
+#define CSR_CPUID           0xfc0
+#define CSR_MAPBADDR        0xfc1
+#define CSR_MHALTCAUSE      0xfe0
+#define CSR_MDBGINFO        0xfe1
+#define CSR_MPCFIFO         0xfe2
+#define CSR_MDBGFIFO2       0xfe3
+
+#define CSR_SXSTATUS        0x5c0
+#define CSR_SHCR            0x5c1
+#define CSR_SCER2           0x5c2
+#define CSR_SCER            0x5c3
+#define CSR_SCOUNTERINTEN   0x5c4
+#define CSR_SCOUNTEROF      0x5c5
+#define CSR_SHINT           0x5c6
+#define CSR_SHINT2          0x5c7
+#define CSR_SHPMINHIBIT     0x5c8
+#define CSR_SHPMCR          0x5c9
+#define CSR_SHPMSR          0x5ca
+#define CSR_SHPMER          0x5cb
+#define CSR_SL2PID          0x5cc
+#define CSR_SL2WP           0x5cd
+#define CSR_SIESR           0x5ce
+#define CSR_SL2WPH          0x5cf
+#define CSR_SBEADDR         0x5d0
+#define CSR_SSBEPA          0x5d1
+#define CSR_SSBEPA2         0x5d2
+#define CSR_SCERH           0x5d3
+#define CSR_SCER2H          0x5d4
+#define CSR_CYCLE_C910      0x5e0
+#define CSR_SHPMCOUNTER1    0x5e1
+#define CSR_SHPMCOUNTER2    0x5e2
+#define CSR_SHPMCOUNTER3    0x5e3
+#define CSR_SHPMCOUNTER4    0x5e4
+#define CSR_SHPMCOUNTER5    0x5e5
+#define CSR_SHPMCOUNTER6    0x5e6
+#define CSR_SHPMCOUNTER7    0x5e7
+#define CSR_SHPMCOUNTER8    0x5e8
+#define CSR_SHPMCOUNTER9    0x5e9
+#define CSR_SHPMCOUNTER10   0x5ea
+#define CSR_SHPMCOUNTER11   0x5eb
+#define CSR_SHPMCOUNTER12   0x5ec
+#define CSR_SHPMCOUNTER13   0x5ed
+#define CSR_SHPMCOUNTER14   0x5ee
+#define CSR_SHPMCOUNTER15   0x5ef
+#define CSR_SHPMCOUNTER16   0x5f0
+#define CSR_SHPMCOUNTER17   0x5f1
+#define CSR_SHPMCOUNTER18   0x5f2
+#define CSR_SHPMCOUNTER19   0x5f3
+#define CSR_SHPMCOUNTER20   0x5f4
+#define CSR_SHPMCOUNTER21   0x5f5
+#define CSR_SHPMCOUNTER22   0x5f6
+#define CSR_SHPMCOUNTER23   0x5f7
+#define CSR_SHPMCOUNTER24   0x5f8
+#define CSR_SHPMCOUNTER25   0x5f9
+#define CSR_SHPMCOUNTER26   0x5fa
+#define CSR_SHPMCOUNTER27   0x5fb
+#define CSR_SHPMCOUNTER28   0x5fc
+#define CSR_SHPMCOUNTER29   0x5fd
+#define CSR_SHPMCOUNTER30   0x5fe
+#define CSR_SHPMCOUNTER31   0x5ff
+
+#define CSR_SMIR            0x9c0
+#define CSR_SMLO0           0x9c1
+#define CSR_SMEH            0x9c2
+#define CSR_SMCIR           0x9c3
+
+#define CSR_SCYCLEH          0x9e0
+#define CSR_SINSTRETH        0x9e2
+#define CSR_SHPMCOUNTER3H    0x9e3
+#define CSR_SHPMCOUNTER4H    0x9e4
+#define CSR_SHPMCOUNTER5H    0x9e5
+#define CSR_SHPMCOUNTER6H    0x9e6
+#define CSR_SHPMCOUNTER7H    0x9e7
+#define CSR_SHPMCOUNTER8H    0x9e8
+#define CSR_SHPMCOUNTER9H    0x9e9
+#define CSR_SHPMCOUNTER10H   0x9ea
+#define CSR_SHPMCOUNTER11H   0x9eb
+#define CSR_SHPMCOUNTER12H   0x9ec
+#define CSR_SHPMCOUNTER13H   0x9ed
+#define CSR_SHPMCOUNTER14H   0x9ee
+#define CSR_SHPMCOUNTER15H   0x9ef
+#define CSR_SHPMCOUNTER16H   0x9f0
+#define CSR_SHPMCOUNTER17H   0x9f1
+#define CSR_SHPMCOUNTER18H   0x9f2
+#define CSR_SHPMCOUNTER19H   0x9f3
+#define CSR_SHPMCOUNTER20H   0x9f4
+#define CSR_SHPMCOUNTER21H   0x9f5
+#define CSR_SHPMCOUNTER22H   0x9f6
+#define CSR_SHPMCOUNTER23H   0x9f7
+#define CSR_SHPMCOUNTER24H   0x9f8
+#define CSR_SHPMCOUNTER25H   0x9f9
+#define CSR_SHPMCOUNTER26H   0x9fa
+#define CSR_SHPMCOUNTER27H   0x9fb
+#define CSR_SHPMCOUNTER28H   0x9fc
+#define CSR_SHPMCOUNTER29H   0x9fd
+#define CSR_SHPMCOUNTER30H   0x9fe
+#define CSR_SHPMCOUNTER31H   0x9ff
+
+/* Floating point round mode in fxcr */
+#define FXCR_RD_SHIFT       24
+#define FXCR_RD             (0x7 << FXCR_RD_SHIFT)
+
+/* BF16 in fxcr */
+#define FXCR_BF16_SHIFT     31
+#define FXCR_BF16           (0x1 << FXCR_BF16_SHIFT)
+
+/* TCM support */
+#define MDTCMCR_EN          0x1
+#define MDTCMCR_ECC_EN      0x2
+#define MDTCMCR_INTERLEAVE  0x4
+#define MDTCMCR_SIZE        0xf0
+#define MDTCMCR_BASE_32     0xfffff000
+#define MDTCMCR_BASE_64     0xfffffffffffff000
+
+#define MITCMCR_EN          0x1
+#define MITCMCR_ECC_EN      0x2
+#define MITCMCR_INTERLEAVE  0x4
+#define MITCMCR_SIZE        0xf0
+#define MITCMCR_BASE_32     0xfffff000
+#define MITCMCR_BASE_64     0xfffffffffffff000
+
+/* MMU MCIR bit MASK */
+#define CSKY_SMCIR_TLBP_SHIFT        31
+#define CSKY_SMCIR_TLBP_MASK         (1 << CSKY_SMCIR_TLBP_SHIFT)
+#define CSKY_SMCIR_TLBR_SHIFT        30
+#define CSKY_SMCIR_TLBR_MASK         (1 << CSKY_SMCIR_TLBR_SHIFT)
+#define CSKY_SMCIR_TLBWI_SHIFT       29
+#define CSKY_SMCIR_TLBWI_MASK        (1 << CSKY_SMCIR_TLBWI_SHIFT)
+#define CSKY_SMCIR_TLBWR_SHIFT       28
+#define CSKY_SMCIR_TLBWR_MASK        (1 << CSKY_SMCIR_TLBWR_SHIFT)
+#define CSKY_SMCIR_TLBINV_SHIFT      27
+#define CSKY_SMCIR_TLBINV_MASK       (1 << CSKY_SMCIR_TLBINV_SHIFT)
+#define CSKY_SMCIR_TLBINV_ALL_SHIFT  26
+#define CSKY_SMCIR_TLBINV_ALL_MASK   (1 << CSKY_SMCIR_TLBINV_ALL_SHIFT)
+#define CSKY_SMCIR_TLBINV_IDX_SHIFT  25
+#define CSKY_SMCIR_TLBINV_IDX_MASK   (1 << CSKY_SMCIR_TLBINV_IDX_SHIFT)
+#define CSKY_SMCIR_TTLBINV_ALL_SHIFT 24
+#define CSKY_SMCIR_TTLBINV_ALL_MASK  (1 << CSKY_SMCIR_TTLBINV_ALL_SHIFT)
+
+/* CLIC */
+#define CSR_MINTSTATUS      0x346
+#define CSR_SINTSTATUS      0x146
+
+/* mintstatus */
+#define MINTSTATUS_MIL                     0xff000000 /* mil[7:0] */
+#define MINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
+#define MINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
+
+/* sintstatus */
+#define SINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
+#define SINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
+
+#define CSR_MINTTHRESH      0x347
+#define CSR_SINTTHRESH      0x147
+
+#define CSR_MTVT            0x307
+#define CSR_STVT            0x107
+
+/* FIXME: only exist in 0.9 spec */
+#define CSR_MNXTI           0x345
+#define CSR_SNXTI           0x145
+
+/* mcause */
+#define MCAUSE_MINHV                       0x40000000 /* minhv */
+#define MCAUSE_MPP                         0x30000000 /* mpp[1:0] */
+#define MCAUSE_MPIE                        0x08000000 /* mpie */
+#define MCAUSE_MPIL                        0x00ff0000 /* mpil[7:0] */
+#define MCAUSE_EXCCODE                     0x00000fff /* exccode[11:0] */
+
+/* scause */
+#define SCAUSE_SINHV                       0x40000000 /* sinhv */
+#define SCAUSE_SPP                         0x10000000 /* spp */
+#define SCAUSE_SPIE                        0x08000000 /* spie */
+#define SCAUSE_SPIL                        0x00ff0000 /* spil[7:0] */
+#define SCAUSE_EXCCODE                     0x00000fff /* exccode[11:0] */
 #endif

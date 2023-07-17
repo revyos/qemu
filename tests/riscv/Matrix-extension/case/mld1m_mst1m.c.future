@@ -1,0 +1,120 @@
+/*
+ * Copyright (c) 2021 T-Head Semiconductor Co., Ltd. All rights reserved.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "testsuite.h"
+#include "matrix_insn.h"
+
+
+struct matrix_ld_st src0[] = {
+    {
+        
+        .move_int8 = {
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                //Data lack for comparison
+        },
+        .move_int16 = {
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+        },
+        .move_int32 = {
+            
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+        },
+        .move_int64 = {
+                 
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+        },
+    },
+};
+
+struct matrix_ld_st dst0[] = {
+    {
+        .move_int8 = {
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                {0x00, 0x00, 0x00 ,0x00},
+                //Data lack for comparison
+        },
+        .move_int16 = {
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+            {0x0000, 0x0000, 0x0000, 0x0000},
+        },
+        .move_int32 = {
+            
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+            {0x00000000, 0x00000000, 0x00000000, 0x00000000},
+        },
+        .move_int64 = {
+                 
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+                {0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000},
+        },
+    }
+};
+
+struct matrix_ld_st res;
+
+
+int main(void)
+{
+
+    
+
+    int i = 0, length = sizeof(src0) / sizeof(struct matrix_ld_st);;
+    init_testsuite("Testing insn mldm1 and mstm1\n");
+
+    length = sizeof(src0) / sizeof(struct matrix_ld_st);
+
+    for (i = 0; i < length; i++) {
+        test_mldm1b(src0[i].move_int8, res.move_int8);
+        result_compare_ld_and_st8((void *)res.move_int8, (void *)dst0[i].move_int8);
+    }
+    printf("mld1mh\n");
+    for (i = 0; i < length; i++) {
+        test_mldm1h(src0[i].move_int16, res.move_int16);
+        result_compare_ld_and_st16((void *)res.move_int16, (void *)dst0[i].move_int16);
+    }
+    printf("mld1mw\n");
+    for (i = 0; i < length; i++) {
+        test_mldm1w(src0[i].move_int32,  res.move_int32);
+        result_compare_ld_and_st16((void *)res.move_int32, (void *)dst0[i].move_int32);
+    }
+    printf("mld1md\n");
+    for (i = 0; i < length; i++) {
+        test_mldm1d(src0[i].move_int64, res.move_int64);
+        result_compare_ld_and_st((void *)res.move_int64,(void *) dst0[i].move_int64);
+    }
+    return done_testing();
+}

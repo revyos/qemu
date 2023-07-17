@@ -23,6 +23,7 @@
 #include "disas/disas.h"
 #include "exec/cpu_ldst.h"
 #include "exec/exec-all.h"
+#include "exec/tracestub.h"
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
 
@@ -39,6 +40,7 @@
 
 /* global register indices */
 static TCGv cpu_gpr[32], cpu_gprh[32], cpu_pc, cpu_vl, cpu_vstart;
+static TCGv sizem, sizen, sizek;
 static TCGv_i64 cpu_fpr[32]; /* assume F and D extensions */
 static TCGv load_res;
 static TCGv load_val;
@@ -62,6 +64,7 @@ typedef struct DisasContext {
     target_ulong cur_insn_len;
     target_ulong pc_save;
     target_ulong priv_ver;
+    target_ulong vext_ver;
     RISCVMXL misa_mxl_max;
     RISCVMXL xl;
     RISCVMXL address_xl;
@@ -69,6 +72,8 @@ typedef struct DisasContext {
     uint32_t opcode;
     RISCVExtStatus mstatus_fs;
     RISCVExtStatus mstatus_vs;
+    uint32_t mcsr_ms;
+    bool msd;
     uint32_t mem_idx;
     uint32_t priv;
     /*
@@ -83,6 +88,7 @@ typedef struct DisasContext {
     bool virt_inst_excp;
     bool virt_enabled;
     const RISCVCPUConfig *cfg_ptr;
+    bool ext_psfoperand;
     /* vector extension */
     bool vill;
     /*
@@ -103,7 +109,26 @@ typedef struct DisasContext {
     uint8_t vma;
     bool cfg_vta_all_1s;
     bool vstart_eq_zero;
+    target_ulong vstart;
+    uint16_t vlen;
+    uint16_t mlen;
     bool vl_eq_vlmax;
+    bool bf16;
+    bool pwi32;
+    bool pwi64;
+    bool i4i32;
+    bool i8i32;
+    bool i16i64;
+    bool f16f16;
+    bool f32f32;
+    bool f64f64;
+    bool f16f32;
+    bool f32f64;
+    bool mill;
+    bool nill;
+    bool kill;
+    bool npill;
+    uint16_t mrowlen;
     CPUState *cs;
     TCGv zero;
     /* PointerMasking extension */
@@ -116,6 +141,68 @@ typedef struct DisasContext {
     /* TCG of the current insn_start */
     TCGOp *insn_start;
 } DisasContext;
+
+static void csky_trace_tb_start(CPURISCVState *env, TranslationBlock *tb)
+{
+    TCGv t0 = tcg_temp_new();
+
+    if (tb_cflags(tb) & CF_PCREL) {
+        tcg_gen_mov_tl(t0, cpu_pc);
+    } else {
+        tcg_gen_movi_tl(t0, tb->pc);
+    }
+    gen_helper_trace_tb_start(cpu_env, t0);
+}
+
+static void csky_trace_tb_exit(uint32_t subtype, uint32_t offset)
+{
+    TCGv_i32 t0 = tcg_constant_i32(subtype);
+    TCGv_i32 t1 = tcg_constant_i32(offset);
+
+    gen_helper_trace_tb_exit(t0, t1);
+}
+
+static TCGOp *jcount_start_insn;
+static void gen_csky_jcount_start(DisasContext *dc, CPUState *cpu)
+{
+    TCGv t0 = tcg_temp_new();
+    TCGv_i32 t1 = tcg_temp_new_i32();
+    CPUArchState *env = cpu->env_ptr;
+
+    /* We emit a movi with a dummy immediate argument. Keep the insn index
+     * of the movi so that we later (when we know the actual insn count)
+     * can update the immediate argument with the actual insn count.  */
+    tcg_gen_movi_i32(t1, 0xdeadbeef);
+    jcount_start_insn = tcg_last_op();
+
+    if (tb_cflags(dc->base.tb) & CF_PCREL) {
+        tcg_gen_mov_tl(t0, cpu_pc);
+    } else {
+        tcg_gen_movi_tl(t0, dc->base.pc_first);
+    }
+
+    if (env->jcount_start != 0) {
+        gen_helper_jcount(cpu_env, t0, t1);
+    }
+    if (cpu->csky_trace_features & CSKY_TRACE) {
+        gen_helper_csky_trace_icount(cpu_env, t0, t1);
+    }
+}
+
+static void gen_csky_jcount_end(int num_insns)
+{
+    tcg_set_insn_param(jcount_start_insn, 1,
+                       tcgv_i32_arg(tcg_constant_i32(num_insns)));
+}
+
+static void csky_dump_tb_map(DisasContextBase *dcbase)
+{
+    target_ulong tb_pc = dcbase->pc_first;
+    target_ulong tb_end = dcbase->pc_next;
+    uint64_t icount = dcbase->num_insns;
+
+    qemu_log_mask(CPU_TB_TRACE, "tb_map: 0x" TARGET_FMT_lx " 0x" TARGET_FMT_lx " %" PRIu64 "\n", tb_pc, tb_end, icount);
+}
 
 static inline bool has_ext(DisasContext *ctx, uint32_t ext)
 {
@@ -191,6 +278,14 @@ static void gen_check_nanbox_h(TCGv_i64 out, TCGv_i64 in)
 {
     TCGv_i64 t_max = tcg_constant_i64(0xffffffffffff0000ull);
     TCGv_i64 t_nan = tcg_constant_i64(0xffffffffffff7e00ull);
+
+    tcg_gen_movcond_i64(TCG_COND_GEU, out, in, t_max, in, t_nan);
+}
+
+static void gen_check_nanbox_bh(TCGv_i64 out, TCGv_i64 in)
+{
+    TCGv_i64 t_max = tcg_constant_i64(0xffffffffffff0000ull);
+    TCGv_i64 t_nan = tcg_constant_i64(0xffffffffffff7fc0ull);
 
     tcg_gen_movcond_i64(TCG_COND_GEU, out, in, t_max, in, t_nan);
 }
@@ -674,6 +769,29 @@ static void mark_vs_dirty(DisasContext *ctx)
 static inline void mark_vs_dirty(DisasContext *ctx) { }
 #endif
 
+#ifndef CONFIG_USER_ONLY
+/*
+ * We will have already diagnosed disabled state,
+ * and need to turn initial/clean into dirty.
+ */
+static void mark_ms_dirty(DisasContext *ctx)
+{
+    TCGv tmp;
+
+    if (!ctx->msd && (ctx->mcsr_ms != EXT_STATUS_DIRTY)) {
+        /* Remember the state change for the rest of the TB.  */
+        ctx->mcsr_ms = EXT_STATUS_DIRTY;
+
+        tmp = tcg_temp_new();
+        tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
+        tcg_gen_ori_tl(tmp, tmp, MSTATUS_TH_MS);
+        tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
+    }
+}
+#else
+static inline void mark_ms_dirty(DisasContext *ctx) { }
+#endif
+
 static void gen_set_rm(DisasContext *ctx, int rm)
 {
     if (ctx->frm == rm) {
@@ -707,6 +825,11 @@ static void gen_set_rm_chkfrm(DisasContext *ctx, int rm)
 static int ex_plus_1(DisasContext *ctx, int nf)
 {
     return nf + 1;
+}
+
+static int ex_plus_8(DisasContext *ctx, int rs)
+{
+    return rs + 8;
 }
 
 #define EX_SH(amount) \
@@ -912,6 +1035,64 @@ static bool gen_arith(DisasContext *ctx, arg_r *a, DisasExtend ext,
     return true;
 }
 
+static void gen_load_internal(DisasContext *ctx, int memop, TCGv t1, TCGv t0)
+{
+    if (gen_mem_trace()) {
+        gen_update_pc(ctx, 0);
+        switch (memop) {
+        case MO_SB:
+            gen_helper_trace_ld8s(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_TESW:
+            gen_helper_trace_ld16s(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_TESL:
+            gen_helper_trace_ld32s(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_UB:
+            gen_helper_trace_ld8u(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_TEUW:
+            gen_helper_trace_ld16u(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_TEUL:
+            gen_helper_trace_ld32u(cpu_env, cpu_pc, t1, t0);
+            break;
+        case MO_TEUQ:
+            gen_helper_trace_ld64u(cpu_env, cpu_pc, t1, t0);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+static void gen_store_internal(DisasContext *ctx, int memop, TCGv dat, TCGv t0)
+{
+    if (gen_mem_trace()) {
+        gen_update_pc(ctx, 0);
+        switch (memop) {
+        case MO_SB:
+        case MO_UB:
+            gen_helper_trace_st8(cpu_env, cpu_pc, dat, t0);
+            break;
+        case MO_TESW:
+        case MO_TEUW:
+            gen_helper_trace_st16(cpu_env, cpu_pc, dat, t0);
+            break;
+        case MO_TESL:
+        case MO_TEUL:
+            gen_helper_trace_st32(cpu_env, cpu_pc, dat, t0);
+            break;
+        case MO_TEUQ:
+            gen_helper_trace_st64(cpu_env, cpu_pc, dat, t0);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 static bool gen_arith_per_ol(DisasContext *ctx, arg_r *a, DisasExtend ext,
                              void (*f_tl)(TCGv, TCGv, TCGv),
                              void (*f_32)(TCGv, TCGv, TCGv),
@@ -1094,12 +1275,16 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 #include "insn_trans/trans_rvzfa.c.inc"
 #include "insn_trans/trans_rvzfh.c.inc"
 #include "insn_trans/trans_rvk.c.inc"
+#include "insn_trans/trans_rvp.c.inc"
+#include "insn_trans/trans_rvmm.c.inc"
 #include "insn_trans/trans_privileged.c.inc"
 #include "insn_trans/trans_svinval.c.inc"
 #include "insn_trans/trans_rvbf16.c.inc"
 #include "decode-xthead.c.inc"
 #include "insn_trans/trans_xthead.c.inc"
 #include "insn_trans/trans_xventanacondops.c.inc"
+#include "decode-v0p7.c.inc"
+#include "insn_trans/trans_v0p7.c.inc"
 
 /* Include the auto-generated decoder for 16 bit insn */
 #include "decode-insn16.c.inc"
@@ -1126,6 +1311,7 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
         bool (*guard_func)(const RISCVCPUConfig *);
         bool (*decode_func)(DisasContext *, uint32_t);
     } decoders[] = {
+        { has_v0p7_p,  decode_v0p7 },
         { always_true_p,  decode_insn32 },
         { has_xthead_p, decode_xthead },
         { has_XVentanaCondOps_p,  decode_XVentanaCodeOps },
@@ -1162,44 +1348,112 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
     gen_exception_illegal(ctx);
 }
 
+/**
+ * riscv_tbflags_from_tb:
+ * @tb: the TranslationBlock
+ *
+ * Extract the flag values from @tb.
+ */
+static inline CPURISCVTBFlags riscv_tbflags_from_tb(const TranslationBlock *tb)
+{
+    return (CPURISCVTBFlags){ tb->flags, tb->cs_base };
+}
+
 static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
     CPURISCVState *env = cs->env_ptr;
     RISCVCPU *cpu = RISCV_CPU(cs);
-    uint32_t tb_flags = ctx->base.tb->flags;
+    CPURISCVTBFlags tb_flags = riscv_tbflags_from_tb(dcbase->tb);
 
     ctx->pc_save = ctx->base.pc_first;
-    ctx->priv = FIELD_EX32(tb_flags, TB_FLAGS, PRIV);
-    ctx->mem_idx = FIELD_EX32(tb_flags, TB_FLAGS, MEM_IDX);
-    ctx->mstatus_fs = FIELD_EX32(tb_flags, TB_FLAGS, FS);
-    ctx->mstatus_vs = FIELD_EX32(tb_flags, TB_FLAGS, VS);
+    ctx->priv = EX_TBFLAGS_ANY(tb_flags, PRIV);
+    ctx->mem_idx = EX_TBFLAGS_ANY(tb_flags, MEM_IDX);
+    ctx->mstatus_fs = EX_TBFLAGS_ANY(tb_flags, FS);
+    if (env->vext_ver == VEXT_VERSION_1_00_0) {
+        ctx->mstatus_vs = EX_TBFLAGS_ANY(tb_flags, VS);
+    }
     ctx->priv_ver = env->priv_ver;
-    ctx->virt_enabled = FIELD_EX32(tb_flags, TB_FLAGS, VIRT_ENABLED);
+    ctx->vext_ver = env->vext_ver;
+    ctx->virt_enabled = EX_TBFLAGS_ANY(tb_flags, VIRT_ENABLED);
     ctx->misa_ext = env->misa_ext;
     ctx->frm = -1;  /* unknown rounding mode */
     ctx->cfg_ptr = &(cpu->cfg);
-    ctx->vill = FIELD_EX32(tb_flags, TB_FLAGS, VILL);
-    ctx->sew = FIELD_EX32(tb_flags, TB_FLAGS, SEW);
-    ctx->lmul = sextract32(FIELD_EX32(tb_flags, TB_FLAGS, LMUL), 0, 3);
-    ctx->vta = FIELD_EX32(tb_flags, TB_FLAGS, VTA) && cpu->cfg.rvv_ta_all_1s;
-    ctx->vma = FIELD_EX32(tb_flags, TB_FLAGS, VMA) && cpu->cfg.rvv_ma_all_1s;
+    ctx->vill = EX_TBFLAGS_ANY(tb_flags, VILL);
+    ctx->sew = EX_TBFLAGS_ANY(tb_flags, SEW);
+    ctx->vta = EX_TBFLAGS_ANY(tb_flags, VTA) && cpu->cfg.rvv_ta_all_1s;
+    ctx->vma = EX_TBFLAGS_ANY(tb_flags, VMA) && cpu->cfg.rvv_ma_all_1s;
     ctx->cfg_vta_all_1s = cpu->cfg.rvv_ta_all_1s;
-    ctx->vstart_eq_zero = FIELD_EX32(tb_flags, TB_FLAGS, VSTART_EQ_ZERO);
-    ctx->vl_eq_vlmax = FIELD_EX32(tb_flags, TB_FLAGS, VL_EQ_VLMAX);
+    ctx->vstart_eq_zero = EX_TBFLAGS_ANY(tb_flags, VSTART_EQ_ZERO);
+    ctx->vl_eq_vlmax = EX_TBFLAGS_ANY(tb_flags, VL_EQ_VLMAX);
+    if (ctx->vext_ver == VEXT_VERSION_0_07_1) {
+        ctx->lmul = EX_TBFLAGS_ANY(tb_flags, LMUL);
+        ctx->mlen = 1 << (ctx->sew  + 3 - ctx->lmul);
+    } else {
+        ctx->lmul = sextract32(EX_TBFLAGS_ANY(tb_flags, LMUL), 0, 3);
+        ctx->mlen = 1;
+    }
+    ctx->vstart = env->vstart;
+    ctx->vlen = cpu->cfg.vlen;
+    ctx->ext_psfoperand = cpu->cfg.ext_psfoperand;
     ctx->misa_mxl_max = env->misa_mxl_max;
-    ctx->xl = FIELD_EX32(tb_flags, TB_FLAGS, XL);
-    ctx->address_xl = FIELD_EX32(tb_flags, TB_FLAGS, AXL);
+    ctx->xl = EX_TBFLAGS_ANY(tb_flags, XL);
+    ctx->address_xl = EX_TBFLAGS_ANY(tb_flags, AXL);
     ctx->cs = cs;
-    ctx->pm_mask_enabled = FIELD_EX32(tb_flags, TB_FLAGS, PM_MASK_ENABLED);
-    ctx->pm_base_enabled = FIELD_EX32(tb_flags, TB_FLAGS, PM_BASE_ENABLED);
-    ctx->itrigger = FIELD_EX32(tb_flags, TB_FLAGS, ITRIGGER);
+    ctx->pm_mask_enabled = EX_TBFLAGS_ANY(tb_flags, PM_MASK_ENABLED);
+    ctx->pm_base_enabled = EX_TBFLAGS_ANY(tb_flags, PM_BASE_ENABLED);
+    ctx->itrigger = EX_TBFLAGS_ANY(tb_flags, ITRIGGER);
     ctx->zero = tcg_constant_tl(0);
     ctx->virt_inst_excp = false;
+    ctx->mcsr_ms = EX_TBFLAGS_THEAD(tb_flags, MS);
+    ctx->msd = EX_TBFLAGS_THEAD(tb_flags, MSD);
+    ctx->pwi32 = EX_TBFLAGS_THEAD(tb_flags, PWI32);
+    ctx->pwi64 = EX_TBFLAGS_THEAD(tb_flags, PWI64);
+    ctx->i4i32 = EX_TBFLAGS_THEAD(tb_flags, I4I32);
+    ctx->i8i32 = EX_TBFLAGS_THEAD(tb_flags, I8I32);
+    ctx->i16i64 = EX_TBFLAGS_THEAD(tb_flags, I16I64);
+    ctx->f16f16 = EX_TBFLAGS_THEAD(tb_flags, F16F16);
+    ctx->f32f32 = EX_TBFLAGS_THEAD(tb_flags, F32F32);
+    ctx->f64f64 = EX_TBFLAGS_THEAD(tb_flags, F64F64);
+    ctx->f16f32 = EX_TBFLAGS_THEAD(tb_flags, F16F32);
+    ctx->f32f64 = EX_TBFLAGS_THEAD(tb_flags, F32F64);
+    ctx->mill = EX_TBFLAGS_THEAD(tb_flags, MILL);
+    ctx->nill = EX_TBFLAGS_THEAD(tb_flags, NILL);
+    ctx->kill = EX_TBFLAGS_THEAD(tb_flags, KILL);
+    ctx->npill = EX_TBFLAGS_THEAD(tb_flags, NPILL);
+    ctx->bf16 = EX_TBFLAGS_THEAD(tb_flags, BF16);
+    ctx->mrowlen = cpu->cfg.mrowlen;
+}
+
+static void csky_tb_start_tb(CPURISCVState *env, TranslationBlock *tb)
+{
+    TCGv t0 = tcg_temp_new();
+
+    if (tb_cflags(tb) & CF_PCREL) {
+        tcg_gen_mov_tl(t0, cpu_pc);
+    } else {
+        tcg_gen_movi_tl(t0, tb->pc);
+    }
+    gen_helper_tb_trace(cpu_env, t0);
 }
 
 static void riscv_tr_tb_start(DisasContextBase *db, CPUState *cpu)
 {
+    DisasContext *ctx = container_of(db, DisasContext, base);
+    CPURISCVState *env = cpu->env_ptr;
+    TranslationBlock *tb = db->tb;
+
+    if ((cpu->csky_trace_features & CSKY_TRACE) || env->jcount_start != 0) {
+        gen_csky_jcount_start(ctx, cpu);
+    }
+
+    if (gen_tb_trace()) {
+        csky_trace_tb_start(env, tb);
+    }
+
+    if (env->tb_trace == 1 || env->pctrace == 1) {
+        csky_tb_start_tb(env, tb);
+    }
 }
 
 static void riscv_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
@@ -1247,15 +1501,49 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 static void riscv_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    CPURISCVState *env = cpu->env_ptr;
 
+    if ((dcbase->is_jmp == DISAS_TOO_MANY) && (dcbase->num_insns == 1)) {
+        TCGv t0 = tcg_temp_new();
+        if (tb_cflags(dcbase->tb) & CF_PCREL) {
+            tcg_gen_mov_tl(t0, cpu_pc);
+        } else {
+            tcg_gen_movi_tl(t0, dcbase->pc_first);
+        }
+        gen_helper_tag_pctrace(cpu_env, t0);
+    }
     switch (ctx->base.is_jmp) {
     case DISAS_TOO_MANY:
+        if (gen_tb_trace()) {
+            if (cpu->singlestep_enabled) {
+                csky_trace_tb_exit(0x1, dcbase->pc_next - dcbase->pc_first);
+            } else {
+                /* exit on too many insns. */
+                csky_trace_tb_exit(0x3, dcbase->pc_next - dcbase->pc_first);
+            }
+        }
         gen_goto_tb(ctx, 0, 0);
         break;
     case DISAS_NORETURN:
+        if (gen_tb_trace()) {
+            csky_trace_tb_exit(0x2, dcbase->pc_next - dcbase->pc_first);
+        }
         break;
     default:
         g_assert_not_reached();
+    }
+    if (cpu->csky_trace_features & CSKY_TRACE || env->jcount_start != 0) {
+        gen_csky_jcount_end(dcbase->num_insns);
+    }
+
+    if (env->tb_trace == 1) {
+        /* jcount to filter tb_trace */
+        if (env->jcount_enable == 0) {
+            csky_dump_tb_map(dcbase);
+        } else if ((dcbase->pc_first > env->jcount_start) &&
+                    (dcbase->pc_next < env->jcount_end)) {
+            csky_dump_tb_map(dcbase);
+        }
     }
 }
 
@@ -1329,4 +1617,7 @@ void riscv_translate_init(void)
                                  "pmmask");
     pm_base = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, cur_pmbase),
                                  "pmbase");
+    sizem = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizem), "sizem");
+    sizen = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizen), "sizen");
+    sizek = tcg_global_mem_new(cpu_env, offsetof(CPURISCVState, sizek), "sizek");
 }

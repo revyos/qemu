@@ -145,3 +145,13 @@ system_ss.add(when: 'CONFIG_SBSA_REF', if_true: files('sbsa_ec.c'))
 
 # HPPA devices
 system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
+
+# CSKY devices
+system_ss.add(when: 'CONFIG_CSKY_EXIT', if_true: files('csky_exit.c'))
+system_ss.add(when: 'CONFIG_XIAOHUI_CPR', if_true: files('xiaohui_ahb_cpr.c'))
+system_ss.add(when: 'CONFIG_CSKY_MEMLOG', if_true: files('csky_memlog.c'))
+system_ss.add(when: 'CONFIG_CSKY_FFT', if_true: files('csky_fft.c'))
+system_ss.add(when: 'CONFIG_CSKY_MCA', if_true: files('csky_mca.c'))
+specific_ss.add(when: 'CONFIG_THEAD_ASP_NNE_V1', if_true: files('thead_asp_nne_v1.c'))
+specific_ss.add(when: 'CONFIG_POSIX', if_true: meson.get_compiler('c').find_library('Theadasp', dirs:join_paths(meson.source_root(), 'hw/misc/')))
+specific_ss.add(when: 'CONFIG_WIN32', if_true: meson.get_compiler('c').find_library('Theadasp_win', dirs:join_paths(meson.source_root(), 'hw/misc/')))

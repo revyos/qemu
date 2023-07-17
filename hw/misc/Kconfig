@@ -187,3 +187,22 @@ config AXP2XX_PMU
     depends on I2C
 
 source macio/Kconfig
+
+config CSKY_EXIT
+    bool
+
+config XIAOHUI_CPR
+    bool
+
+config CSKY_MEMLOG
+    bool
+
+config CSKY_FFT
+    bool
+
+config CSKY_MCA
+    bool
+
+config THEAD_ASP_NNE_V1
+    bool
+

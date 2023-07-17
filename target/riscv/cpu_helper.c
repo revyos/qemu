@@ -33,6 +33,72 @@
 #include "debug.h"
 #include "tcg/oversized-guest.h"
 
+#if !defined(CONFIG_USER_ONLY)
+#include "hw/intc/riscv_clic.h"
+#endif
+
+#include "exec/tracestub.h"
+/* CLIC hacking */
+#ifndef CONFIG_USER_ONLY
+bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, int mode)
+{
+    switch (mode) {
+    case PRV_M:
+        return env->priv < PRV_M ||
+               (env->priv == PRV_M && get_field(env->mstatus, MSTATUS_MIE));
+    case PRV_S:
+        return env->priv < PRV_S ||
+               (env->priv == PRV_S && get_field(env->mstatus, MSTATUS_SIE));
+    default:
+        return false;
+    }
+}
+
+static target_ulong riscv_intr_pc(CPURISCVState *env, target_ulong tvec,
+                                  target_ulong tvt, bool async, bool clic,
+                                  int cause, int mode)
+{
+    int mode1 = tvec & 0b11, mode2 = tvec & 0b111111;
+    CPUState *cs = env_cpu(env);
+    target_ulong new_pc = 0;
+
+    if (!async) {
+        return tvec & ~0b11;
+    }
+    /* bits [1:0] encode mode; 0 = direct, 1 = vectored, 2 >= reserved */
+    switch (mode1) {
+    case 0b00:
+        return tvec & ~0b11;
+    case 0b01:
+        return (tvec & ~0b11) + cause * 4;
+    default:
+        if (env->clic && (mode2 == 0b000011)) {
+            /* Non-vectored, clicintattr[i].shv = 0 || cliccfg.nvbits = 0 */
+            if (!riscv_clic_shv_interrupt(env->clic, mode, cs->cpu_index,
+                                          cause)) {
+                /* NBASE = mtvec[XLEN-1:6]<<6 */
+                return tvec & ~0b111111;
+            } else {
+                /*
+                 * pc := M[TBASE + XLEN/8 * exccode)] & ~1,
+                 * TBASE = mtvt[XLEN-1:6]<<6
+                 */
+                int size = 2 << env->xl;
+                target_ulong tbase = (tvt & ~0b111111) + size * cause;
+		/*
+		 * Fixme: tbase is a virtual address, so it should be
+		 * translated to physical address and check against PMP.
+		 *
+		 */
+		cpu_physical_memory_read(tbase, &new_pc, size);
+		return new_pc;
+            }
+        }
+        g_assert_not_reached();
+    }
+}
+#endif /* CLIC hacking */
+
 int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch)
 {
 #ifdef CONFIG_USER_ONLY
@@ -65,59 +131,90 @@ int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch)
 void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
                           uint64_t *cs_base, uint32_t *pflags)
 {
+    CPURISCVTBFlags flags = {0, 0};
     CPUState *cs = env_cpu(env);
     RISCVCPU *cpu = RISCV_CPU(cs);
     RISCVExtStatus fs, vs;
-    uint32_t flags = 0;
 
     *pc = env->xl == MXL_RV32 ? env->pc & UINT32_MAX : env->pc;
     *cs_base = 0;
 
     if (cpu->cfg.ext_zve32f) {
-        /*
-         * If env->vl equals to VLMAX, we can use generic vector operation
-         * expanders (GVEC) to accerlate the vector operations.
-         * However, as LMUL could be a fractional number. The maximum
-         * vector size can be operated might be less than 8 bytes,
-         * which is not supported by GVEC. So we set vl_eq_vlmax flag to true
-         * only when maxsz >= 8 bytes.
-         */
-        uint32_t vlmax = vext_get_vlmax(cpu, env->vtype);
-        uint32_t sew = FIELD_EX64(env->vtype, VTYPE, VSEW);
-        uint32_t maxsz = vlmax << sew;
-        bool vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl) &&
-                           (maxsz >= 8);
-        flags = FIELD_DP32(flags, TB_FLAGS, VILL, env->vill);
-        flags = FIELD_DP32(flags, TB_FLAGS, SEW, sew);
-        flags = FIELD_DP32(flags, TB_FLAGS, LMUL,
-                           FIELD_EX64(env->vtype, VTYPE, VLMUL));
-        flags = FIELD_DP32(flags, TB_FLAGS, VL_EQ_VLMAX, vl_eq_vlmax);
-        flags = FIELD_DP32(flags, TB_FLAGS, VTA,
-                           FIELD_EX64(env->vtype, VTYPE, VTA));
-        flags = FIELD_DP32(flags, TB_FLAGS, VMA,
-                           FIELD_EX64(env->vtype, VTYPE, VMA));
-        flags = FIELD_DP32(flags, TB_FLAGS, VSTART_EQ_ZERO, env->vstart == 0);
+        uint32_t vlmax;
+        bool vl_eq_vlmax;
+        if (env->vext_ver == VEXT_VERSION_0_07_1) {
+            vlmax = vext_get_vlmax_7(cpu, env->vtype);
+            vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl);
+            DP_TBFLAGS_ANY(flags, SEW, FIELD_EX64(env->vtype, VTYPE_7, VSEW));
+            DP_TBFLAGS_ANY(flags, LMUL, FIELD_EX64(env->vtype, VTYPE_7, VLMUL));
+        } else {
+            /*
+             * If env->vl equals to VLMAX, we can use generic vector operation
+             * expanders (GVEC) to accerlate the vector operations.
+             * However, as LMUL could be a fractional number. The maximum
+             * vector size can be operated might be less than 8 bytes,
+             * which is not supported by GVEC. So we set vl_eq_vlmax flag to true
+             * only when maxsz >= 8 bytes.
+             */
+            uint32_t sew, maxsz;
+            vlmax = vext_get_vlmax(cpu, env->vtype);
+            sew = FIELD_EX64(env->vtype, VTYPE, VSEW);
+            maxsz = vlmax << sew;
+            vl_eq_vlmax = (env->vstart == 0) && (vlmax == env->vl) &&
+                               (maxsz >= 8);
+            DP_TBFLAGS_ANY(flags, SEW, sew);
+            DP_TBFLAGS_ANY(flags, LMUL, FIELD_EX64(env->vtype, VTYPE, VLMUL));
+            DP_TBFLAGS_ANY(flags, VTA, FIELD_EX64(env->vtype, VTYPE, VTA));
+            DP_TBFLAGS_ANY(flags, VMA, FIELD_EX64(env->vtype, VTYPE, VMA));
+            DP_TBFLAGS_ANY(flags, VSTART_EQ_ZERO, env->vstart == 0);
+        }
+        DP_TBFLAGS_ANY(flags, VL_EQ_VLMAX, vl_eq_vlmax);
+        DP_TBFLAGS_ANY(flags, VILL, env->vill);
     } else {
-        flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
+        DP_TBFLAGS_ANY(flags, VILL, 1);
     }
-
+    if (cpu->cfg.ext_matrix) {
+        DP_TBFLAGS_THEAD(flags, PWI32, !!(env->xmisa & MATRIX_PW_I32));
+        DP_TBFLAGS_THEAD(flags, PWI64, !!(env->xmisa & MATRIX_PW_I64));
+        DP_TBFLAGS_THEAD(flags, I4I32, !!(env->xmisa & MATRIX_MULT_I4I32));
+        DP_TBFLAGS_THEAD(flags, I8I32, !!(env->xmisa & MATRIX_MULT_I8I32));
+        DP_TBFLAGS_THEAD(flags, I16I64, !!(env->xmisa & MATRIX_MULT_I16I64));
+        DP_TBFLAGS_THEAD(flags, F16F16, !!(env->xmisa & MATRIX_MULT_F16F16));
+        DP_TBFLAGS_THEAD(flags, F32F32, !!(env->xmisa & MATRIX_MULT_F32F32));
+        DP_TBFLAGS_THEAD(flags, F64F64, !!(env->xmisa & MATRIX_MULT_F64F64));
+        DP_TBFLAGS_THEAD(flags, MILL,
+                         env->sizem > get_mrows(env) || env->sizem == 0);
+        DP_TBFLAGS_THEAD(flags, NILL,
+                         env->sizen > get_mrows(env) || env->sizen == 0);
+        DP_TBFLAGS_THEAD(flags, KILL,
+                         env->sizek > get_rlenb(env) || env->sizek == 0);
+        DP_TBFLAGS_THEAD(flags, NPILL,
+                         env->sizen > 2 * get_mrows(env) || env->sizen == 0);
+    }
+    DP_TBFLAGS_THEAD(flags, BF16, env->bf16);
 #ifdef CONFIG_USER_ONLY
     fs = EXT_STATUS_DIRTY;
     vs = EXT_STATUS_DIRTY;
+    DP_TBFLAGS_THEAD(flags, MS, EXT_STATUS_DIRTY);
 #else
-    flags = FIELD_DP32(flags, TB_FLAGS, PRIV, env->priv);
+    DP_TBFLAGS_ANY(flags, PRIV, env->priv);
 
-    flags |= cpu_mmu_index(env, 0);
+    flags.flags |= cpu_mmu_index(env, 0);
     fs = get_field(env->mstatus, MSTATUS_FS);
-    vs = get_field(env->mstatus, MSTATUS_VS);
+    if (env->vext_ver == VEXT_VERSION_1_00_0) {
+        vs = get_field(env->mstatus, MSTATUS_VS);
+    } else {
+        vs = 0;
+    }
 
     if (env->virt_enabled) {
-        flags = FIELD_DP32(flags, TB_FLAGS, VIRT_ENABLED, 1);
+        DP_TBFLAGS_ANY(flags, VIRT_ENABLED, 1);
         /*
          * Merge DISABLED and !DIRTY states using MIN.
          * We will set both fields when dirtying.
          */
         fs = MIN(fs, get_field(env->mstatus_hs, MSTATUS_FS));
+
         vs = MIN(vs, get_field(env->mstatus_hs, MSTATUS_VS));
     }
 
@@ -128,22 +225,27 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
     }
 
     if (cpu->cfg.debug && !icount_enabled()) {
-        flags = FIELD_DP32(flags, TB_FLAGS, ITRIGGER, env->itrigger_enabled);
+        DP_TBFLAGS_ANY(flags, ITRIGGER, env->itrigger_enabled);
+    }
+    DP_TBFLAGS_THEAD(flags, MSD, env->mxstatus & MXSTATUS_MSD);
+    if (!(env->mxstatus & MXSTATUS_MSD) && cpu->cfg.ext_matrix) {
+        DP_TBFLAGS_THEAD(flags, MS, get_field(env->mstatus, MSTATUS_TH_MS));
     }
 #endif
 
-    flags = FIELD_DP32(flags, TB_FLAGS, FS, fs);
-    flags = FIELD_DP32(flags, TB_FLAGS, VS, vs);
-    flags = FIELD_DP32(flags, TB_FLAGS, XL, env->xl);
-    flags = FIELD_DP32(flags, TB_FLAGS, AXL, cpu_address_xl(env));
+    DP_TBFLAGS_ANY(flags, FS, fs);
+    DP_TBFLAGS_ANY(flags, VS, vs);
+    DP_TBFLAGS_ANY(flags, XL, env->xl);
+    DP_TBFLAGS_ANY(flags, AXL, cpu_address_xl(env));
     if (env->cur_pmmask != 0) {
-        flags = FIELD_DP32(flags, TB_FLAGS, PM_MASK_ENABLED, 1);
+        DP_TBFLAGS_ANY(flags, PM_MASK_ENABLED, 1);
     }
     if (env->cur_pmbase != 0) {
-        flags = FIELD_DP32(flags, TB_FLAGS, PM_BASE_ENABLED, 1);
+        DP_TBFLAGS_ANY(flags, PM_BASE_ENABLED, 1);
     }
 
-    *pflags = flags;
+    *pflags = flags.flags;
+    *cs_base = flags.flags2;
 }
 
 void riscv_cpu_update_mask(CPURISCVState *env)
@@ -473,6 +575,20 @@ bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request)
             return true;
         }
     }
+    /* CLIC hacking */
+    if (interrupt_request & CPU_INTERRUPT_CLIC) {
+        RISCVCPU *cpu = RISCV_CPU(cs);
+        CPURISCVState *env = &cpu->env;
+        int mode = (env->exccode >> 12) & 0b11;
+        bool enabled = riscv_cpu_local_irq_mode_enabled(env, mode);
+        if (enabled) {
+            cs->exception_index = RISCV_EXCP_INT_FLAG | RISCV_EXCP_INT_CLIC |
+                                  env->exccode;
+            cs->interrupt_request = cs->interrupt_request & ~CPU_INTERRUPT_CLIC;
+            riscv_cpu_do_interrupt(cs);
+            return true;
+        }
+    }
     return false;
 }
 
@@ -499,6 +615,19 @@ bool riscv_cpu_vector_enabled(CPURISCVState *env)
         return true;
     }
 
+    return false;
+}
+
+/* Return true is matrix support is currently enabled */
+bool riscv_cpu_matrix_enabled(CPURISCVState *env)
+{
+    if (riscv_cpu_cfg(env)->ext_matrix) {
+        if (env->mxstatus & MXSTATUS_MSD) {
+            return true;
+        } else {
+            return env->mstatus & MSTATUS_TH_MS;
+        }
+    }
     return false;
 }
 
@@ -914,6 +1043,7 @@ restart:
         int pmp_ret = get_physical_address_pmp(env, &pmp_prot, pte_addr,
                                                sizeof(target_ulong),
                                                MMU_DATA_LOAD, PRV_S);
+
         if (pmp_ret != TRANSLATE_SUCCESS) {
             return TRANSLATE_PMP_FAIL;
         }
@@ -931,18 +1061,19 @@ restart:
         if (riscv_cpu_sxl(env) == MXL_RV32) {
             ppn = pte >> PTE_PPN_SHIFT;
         } else {
-            if (pte & PTE_RESERVED) {
-                return TRANSLATE_FAIL;
-            }
+            if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
+                if (pte & PTE_RESERVED) {
+                    return TRANSLATE_FAIL;
+                }
 
-            if (!pbmte && (pte & PTE_PBMT)) {
-                return TRANSLATE_FAIL;
-            }
+                if (!pbmte && (pte & PTE_PBMT)) {
+                    return TRANSLATE_FAIL;
+                }
 
-            if (!riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
-                return TRANSLATE_FAIL;
+                if (!riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
+                    return TRANSLATE_FAIL;
+                }
             }
-
             ppn = (pte & (target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT;
         }
 
@@ -955,7 +1086,10 @@ restart:
         }
 
         /* Inner PTE, continue walking */
-        if (pte & (PTE_D | PTE_A | PTE_U | PTE_ATTR)) {
+        if (pte & (PTE_D | PTE_A | PTE_U)) {
+            return TRANSLATE_FAIL;
+        }
+        if ((pte & PTE_ATTR) && !riscv_cpu_cfg(env)->ext_xtheadmaee) {
             return TRANSLATE_FAIL;
         }
         base = ppn << PGSHIFT;
@@ -969,11 +1103,12 @@ restart:
         /* Misaligned PPN */
         return TRANSLATE_FAIL;
     }
-    if (!pbmte && (pte & PTE_PBMT)) {
-        /* Reserved without Svpbmt. */
-        return TRANSLATE_FAIL;
+    if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
+        if (!pbmte && (pte & PTE_PBMT)) {
+            /* Reserved without Svpbmt. */
+            return TRANSLATE_FAIL;
+        }
     }
-
     /* Check for reserved combinations of RWX flags. */
     switch (pte & (PTE_R | PTE_W | PTE_X)) {
     case PTE_W:
@@ -1069,7 +1204,8 @@ restart:
     /* For superpage mappings, make a fake leaf PTE for the TLB's benefit. */
     target_ulong vpn = addr >> PGSHIFT;
 
-    if (riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
+    if (!riscv_cpu_cfg(env)->ext_xtheadmaee &&
+        riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
         napot_bits = ctzl(ppn) + 1;
         if ((i != (levels - 1)) || (napot_bits != 4)) {
             return TRANSLATE_FAIL;
@@ -1593,13 +1729,16 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     CPURISCVState *env = &cpu->env;
     bool write_gva = false;
     uint64_t s;
+    int mode, level;
 
     /*
      * cs->exception is 32-bits wide unlike mcause which is XLEN-bits wide
      * so we mask off the MSB and separate into trap type and cause.
      */
     bool async = !!(cs->exception_index & RISCV_EXCP_INT_FLAG);
+    bool clic = !!(cs->exception_index & RISCV_EXCP_INT_CLIC);
     target_ulong cause = cs->exception_index & RISCV_EXCP_INT_MASK;
+    target_ulong exccode = clic ? cause & 0xfff : cause;
     uint64_t deleg = async ? env->mideleg : env->medeleg;
     target_ulong tval = 0;
     target_ulong tinst = 0;
@@ -1682,17 +1821,38 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         }
     }
 
-    trace_riscv_trap(env->mhartid, async, cause, env->pc, tval,
-                     riscv_cpu_get_trap_name(cause, async));
+    if (clic) {
+        mode = (cause >> 12) & 3;
+        level = (cause >> 14) & 0xff;
+        cause &= 0xfff;
+        cause |= get_field(env->mstatus, MSTATUS_MPP) << 28;
+        switch (mode) {
+        case PRV_M:
+            cause |= get_field(env->mintstatus, MINTSTATUS_MIL) << 16;
+            cause |= get_field(env->mstatus, MSTATUS_MIE) << 27;
+            env->mintstatus = set_field(env->mintstatus, MINTSTATUS_MIL, level);
+            break;
+        case PRV_S:
+            cause |= get_field(env->mintstatus, MINTSTATUS_SIL) << 16;
+            cause |= get_field(env->mstatus, MSTATUS_SPIE) << 27;
+            env->mintstatus = set_field(env->mintstatus, MINTSTATUS_SIL, level);
+            break;
+        }
+    } else {
+        mode = env->priv <= PRV_S &&
+            cause < TARGET_LONG_BITS && ((deleg >> cause) & 1) ? PRV_S : PRV_M;
+    }
+
+    trace_riscv_trap(env->mhartid, async, exccode, env->pc, tval,
+                     riscv_cpu_get_trap_name(exccode, async, clic));
 
     qemu_log_mask(CPU_LOG_INT,
                   "%s: hart:"TARGET_FMT_ld", async:%d, cause:"TARGET_FMT_lx", "
                   "epc:0x"TARGET_FMT_lx", tval:0x"TARGET_FMT_lx", desc=%s\n",
-                  __func__, env->mhartid, async, cause, env->pc, tval,
-                  riscv_cpu_get_trap_name(cause, async));
+                  __func__, env->mhartid, async, exccode, env->pc, tval,
+                  riscv_cpu_get_trap_name(exccode, async, clic));
 
-    if (env->priv <= PRV_S &&
-            cause < TARGET_LONG_BITS && ((deleg >> cause) & 1)) {
+    if (mode == PRV_S) {
         /* handle the trap in S-mode */
         if (riscv_has_ext(env, RVH)) {
             uint64_t hdeleg = async ? env->hideleg : env->hedeleg;
@@ -1736,8 +1896,8 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         env->stval = tval;
         env->htval = htval;
         env->htinst = tinst;
-        env->pc = (env->stvec >> 2 << 2) +
-                  ((async && (env->stvec & 3) == 1) ? cause * 4 : 0);
+        env->pc = riscv_intr_pc(env, env->stvec, env->stvt, async,
+                                clic & 0xfff, cause, PRV_S);
         riscv_cpu_set_mode(env, PRV_S);
     } else {
         /* handle the trap in M-mode */
@@ -1767,8 +1927,28 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         env->mtval = tval;
         env->mtval2 = mtval2;
         env->mtinst = tinst;
-        env->pc = (env->mtvec >> 2 << 2) +
-                  ((async && (env->mtvec & 3) == 1) ? cause * 4 : 0);
+        if (tfilter.enable) {
+            if (env->mcause & (RISCV_EXCP_INT_FLAG)) {
+                write_trace_8_24(INST_EXCP, 8,
+                                 (env->mcause & RISCV_EXCP_INT_MASK) + 32,
+                                 env->mepc);
+            } else {
+                write_trace_8_24(INST_EXCP, 8, env->mcause, env->mepc);
+            }
+        }
+        if (clic) {
+            target_ulong mpil = get_field(env->mcause, MCAUSE_MPIL);
+            assert((target_long)env->mcause < 0);
+            if ((mpil == 0) && (env->mexstatus & MEXSTATUS_SPSWAP)) {
+                target_ulong tmp = env->mscratch;
+                env->mscratch = env->gpr[2];
+                env->gpr[2] = tmp;
+            }
+        }
+        env->pc = riscv_intr_pc(env, env->mtvec, env->mtvt, async,
+                                clic, cause & 0xfff, PRV_M);
+        /* FIXME: Add Xuantie check */
+        env->excp_vld = 1;
         riscv_cpu_set_mode(env, PRV_M);
     }
 
@@ -1781,6 +1961,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
 
     env->two_stage_lookup = false;
     env->two_stage_indirect_lookup = false;
+    env->exccode = 0;
 #endif
     cs->exception_index = RISCV_EXCP_NONE; /* mark handled to qemu */
 }

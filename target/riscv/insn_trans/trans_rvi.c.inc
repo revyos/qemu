@@ -232,6 +232,7 @@ static bool gen_load_tl(DisasContext *ctx, arg_lb *a, MemOp memop)
     TCGv addr = get_address(ctx, a->rs1, a->imm);
 
     tcg_gen_qemu_ld_tl(dest, addr, ctx->mem_idx, memop);
+    gen_load_internal(ctx, memop, dest, addr);
     gen_set_gpr(ctx, a->rd, dest);
     return true;
 }
@@ -329,6 +330,7 @@ static bool gen_store_tl(DisasContext *ctx, arg_sb *a, MemOp memop)
     TCGv data = get_gpr(ctx, a->rs2, EXT_NONE);
 
     tcg_gen_qemu_st_tl(data, addr, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, data, addr);
     return true;
 }
 
@@ -784,6 +786,11 @@ static bool trans_pause(DisasContext *ctx, arg_pause *a)
      * end the TB and return to main loop
      */
     gen_update_pc(ctx, ctx->cur_insn_len);
+
+    if (gen_tb_trace()) {
+        csky_trace_tb_exit(0x2, ctx->base.pc_next + ctx->cur_insn_len -
+                           ctx->base.pc_first);
+    }
     exit_tb(ctx);
     ctx->base.is_jmp = DISAS_NORETURN;
 
@@ -808,6 +815,10 @@ static bool trans_fence_i(DisasContext *ctx, arg_fence_i *a)
      * however we need to end the translation block
      */
     gen_update_pc(ctx, ctx->cur_insn_len);
+    if (gen_tb_trace()) {
+        csky_trace_tb_exit(0x2, ctx->base.pc_next + ctx->cur_insn_len -
+                           ctx->base.pc_first);
+    }
     exit_tb(ctx);
     ctx->base.is_jmp = DISAS_NORETURN;
     return true;
