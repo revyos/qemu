@@ -1714,7 +1714,7 @@ static inline void do_kmda(CPURISCVState *env, void *vd, void *va,
     int32_t *d = vd;
     int16_t *a = va, *b = vb;
     if (a[H2(2 * i)] == INT16_MIN && a[H2(2 * i + 1)] == INT16_MIN &&
-        b[H2(2 * i)] == INT16_MIN && a[H2(2 * i + 1)] == INT16_MIN) {
+        b[H2(2 * i)] == INT16_MIN && b[H2(2 * i + 1)] == INT16_MIN) {
         d[H4(i)] = INT32_MAX;
         env->vxsat = 0x1;
     } else {
@@ -1731,7 +1731,7 @@ static inline void do_kmxda(CPURISCVState *env, void *vd, void *va,
     int32_t *d = vd;
     int16_t *a = va, *b = vb;
     if (a[H2(2 * i)] == INT16_MIN && a[H2(2 * i + 1)] == INT16_MIN &&
-        b[H2(2 * i)] == INT16_MIN && a[H2(2 * i + 1)] == INT16_MIN) {
+        b[H2(2 * i)] == INT16_MIN && b[H2(2 * i + 1)] == INT16_MIN) {
         d[H4(i)] = INT32_MAX;
         env->vxsat = 0x1;
     } else {
