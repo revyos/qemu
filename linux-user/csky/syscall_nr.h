@@ -1,7 +1,7 @@
 /*
  * C-SKY syscall header.
  *
- * Copyright (c) 2021 T-Head Semiconductor Co., Ltd. All rights reserved.
+ * Copyright (c) 2021 C-SKY Microsystems Co., Ltd. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public

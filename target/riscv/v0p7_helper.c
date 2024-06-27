@@ -1,7 +1,7 @@
 /*
  * RISC-V Vector Extension Helpers for QEMU.
  *
- * Copyright (c) 2020 T-Head Semiconductor Co., Ltd. All rights reserved.
+ * Copyright (c) 2020 C-SKY Microsystems Co., Ltd. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
