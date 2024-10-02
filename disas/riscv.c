@@ -2024,7 +2024,6 @@ static const char *csr_name(int csrno)
     case 0x0008: return "vstart";
     case 0x0009: return "vxsat";
     case 0x000a: return "vxrm";
-    case 0x000f: return "vcsr";
     case 0x0015: return "seed";
     case 0x0017: return "jvt";
     case 0x0040: return "uscratch";

@@ -865,22 +865,6 @@ static RISCVException write_vstart(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static int read_vcsr(CPURISCVState *env, int csrno, target_ulong *val)
-{
-    *val = (env->vxrm << VCSR_VXRM_SHIFT) | (env->vxsat << VCSR_VXSAT_SHIFT);
-    return RISCV_EXCP_NONE;
-}
-
-static int write_vcsr(CPURISCVState *env, int csrno, target_ulong val)
-{
-#if !defined(CONFIG_USER_ONLY)
-    env->mstatus |= MSTATUS_VS;
-#endif
-    env->vxrm = (val & VCSR_VXRM) >> VCSR_VXRM_SHIFT;
-    env->vxsat = (val & VCSR_VXSAT) >> VCSR_VXSAT_SHIFT;
-    return RISCV_EXCP_NONE;
-}
-
 /* User Timers and Counters */
 static target_ulong get_ticks(bool shift)
 {
@@ -4847,7 +4831,6 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_VSTART]   = { "vstart",   vs,     read_vstart,  write_vstart },
     [CSR_VXSAT]    = { "vxsat",    vs,     read_vxsat,   write_vxsat  },
     [CSR_VXRM]     = { "vxrm",     vs,     read_vxrm,    write_vxrm   },
-    [CSR_VCSR]     = { "vcsr",     vs,     read_vcsr,    write_vcsr   },
     [CSR_VL]       = { "vl",       vs,     read_vl                    },
     [CSR_VTYPE]    = { "vtype",    vs,     read_vtype                 },
     [CSR_VLENB]    = { "vlenb",    vs,     read_vlenb                 },

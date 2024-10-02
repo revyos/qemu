@@ -1381,7 +1381,6 @@ static void riscv_cpu_dump_state(CPUState *cs, FILE *f, int flags)
                     CSR_VSTART,
                     CSR_VXSAT,
                     CSR_VXRM,
-                    CSR_VCSR,
                     CSR_VL,
                     CSR_VTYPE,
                     CSR_VLENB,
